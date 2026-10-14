@@ -177,6 +177,16 @@ const asList = (v) => {
   let a = Array.isArray(v) ? (v[0] === 'L' ? v.slice(1) : v) : (v == null ? [] : [v]);
   return a.filter((x) => x !== '' && x !== 0 && x != null);
 };
+/* Date / DateTime -> secondes, quelle que soit la forme reçue (nombre, ['d'|'D', ts, tz], Date, moment, texte) */
+const toSec = (v) => {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return v;
+  if (Array.isArray(v)) return typeof v[1] === 'number' ? v[1] : null;
+  if (typeof v === 'string') { const t = Date.parse(v); return isNaN(t) ? null : t / 1000; }
+  if (v instanceof Date) return v.getTime() / 1000;
+  if (typeof v.valueOf === 'function' && typeof v.valueOf() === 'number') return v.valueOf() / 1000;
+  return null;
+};
 function toast(msg, err) {
   const t = $('#kbToast'); t.textContent = msg; t.className = 'kb-toast' + (err ? ' err' : ''); t.style.display = 'block';
   clearTimeout(toast._t); toast._t = setTimeout(() => (t.style.display = 'none'), err ? 5000 : 2200);
@@ -229,8 +239,9 @@ async function loadMeta() {
 /* ------------------------------------------------------------------ *
  * Valeurs & affichage
  * ------------------------------------------------------------------ */
-function fmtDate(sec, withTime) {
-  if (sec == null || sec === '' || typeof sec !== 'number') return '';
+function fmtDate(raw, withTime) {
+  const sec = toSec(raw);
+  if (sec == null) return '';
   const d = new Date(sec * 1000);
   return withTime ? d.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : d.toLocaleDateString('fr-FR', { timeZone: 'UTC' });
 }
@@ -238,8 +249,8 @@ function valueList(c, raw) {
   switch (c.base) {
     case 'Ref': case 'RefList': return asList(raw).map((id) => (refs[c.colId]?.map[id] ?? String(id)));
     case 'Choice': case 'ChoiceList': return asList(raw).map(String);
-    case 'Date': return raw == null || raw === '' ? [] : [fmtDate(raw)];
-    case 'DateTime': return raw == null || raw === '' ? [] : [fmtDate(raw, true)];
+    case 'Date': return [fmtDate(raw)].filter(Boolean);
+    case 'DateTime': return [fmtDate(raw, true)].filter(Boolean);
     case 'Bool': return [raw ? 'Oui' : 'Non'];
     case 'Numeric': case 'Int': return raw == null || raw === '' ? [] : [Number(raw).toLocaleString('fr-FR')];
     default: return raw == null || raw === '' ? [] : [typeof raw === 'object' ? '' : String(raw)];
@@ -391,13 +402,14 @@ function editorHtml(c, raw, i, full) {
       getters.push([c, () => $('#' + id).checked]);
       return `<div class="fr-checkbox-group ${full ? 'kb-full' : ''}" style="margin-bottom:1rem"><input type="checkbox" id="${id}" ${raw ? 'checked' : ''} ${ro ? 'disabled' : ''}><label class="fr-label" for="${id}">${esc(c.label)}</label></div>`;
     case 'Date': {
-      const v = typeof raw === 'number' ? new Date(raw * 1000).toISOString().slice(0, 10) : '';
+      const s0 = toSec(raw);
+      const v = s0 != null ? new Date(s0 * 1000).toISOString().slice(0, 10) : '';
       getters.push([c, () => { const s = $('#' + id).value; return s ? Date.parse(s + 'T00:00:00Z') / 1000 : null; }]);
       return wrap(`<input class="fr-input" id="${id}" type="date" value="${v}" ${ro ? 'disabled' : ''}>`);
     }
     case 'DateTime': {
       let v = '';
-      if (typeof raw === 'number') { const d = new Date(raw * 1000); v = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
+      if (toSec(raw) != null) { const d = new Date(toSec(raw) * 1000); v = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
       getters.push([c, () => { const s = $('#' + id).value; return s ? Date.parse(s) / 1000 : null; }]);
       return wrap(`<input class="fr-input" id="${id}" type="datetime-local" value="${v}" ${ro ? 'disabled' : ''}>`);
     }
@@ -457,7 +469,8 @@ async function saveModal() {
   getters.forEach(([c, get]) => {
     if (c.readOnly) return;
     const nv = get();
-    const old = ['ChoiceList', 'RefList'].includes(c.base) ? ['L', ...asList(r[c.colId])] : r[c.colId];
+    const old = isListType(c) ? ['L', ...asList(r[c.colId])]
+      : (c.base === 'Date' || c.base === 'DateTime') ? toSec(r[c.colId]) : r[c.colId];
     if (JSON.stringify(nv) !== JSON.stringify(old ?? (typeof nv === 'string' ? '' : old))) fields[c.colId] = nv;
   });
   const id = modalId; closeModal();
@@ -518,7 +531,7 @@ document.addEventListener('click', async (e) => {
     case 'closeSettings': $('#kbDrawer').classList.remove('open'); break;
     case 'close': closeModal(); break;
     case 'save': saveModal(); break;
-    case 'refresh': await loadMeta(); renderBoard(); renderDrawer(); toast('Structure rechargée'); break;
+    case 'refresh': await loadMeta(); normRecords(); renderBoard(); renderDrawer(); toast('Structure rechargée'); break;
     case 'up': case 'down': case 'rm': {
       const list = a.dataset.list === 'modal' ? cfg.modalFields : cfg.cardFields;
       if (!list) break;
@@ -570,6 +583,23 @@ document.addEventListener('drop', (e) => {
 /* ------------------------------------------------------------------ *
  * Démarrage
  * ------------------------------------------------------------------ */
+/* Par défaut Grist renvoie le libellé des références, pas leur identifiant : on demande les identifiants
+   (expandRefs: false) et, par sécurité, on retraduit un éventuel libellé en identifiant. */
+function refIdOf(c, v) {
+  if (typeof v === 'number' || v == null || v === '') return v;
+  const hit = (refs[c.colId]?.rows || []).find((x) => x.label === v);
+  return hit ? hit.id : v;
+}
+function normRecords() {
+  const rc = meta.cols.filter((c) => c.base === 'Ref' || c.base === 'RefList');
+  if (!rc.length) return;
+  records.forEach((r) => rc.forEach((c) => {
+    const v = r[c.colId];
+    if (c.base === 'Ref') r[c.colId] = refIdOf(c, v);
+    else if (Array.isArray(v)) r[c.colId] = ['L', ...asList(v).map((x) => refIdOf(c, x))];
+  }));
+}
+
 grist.ready({ requiredAccess: 'full', onEditOptions: openSettings });
 grist.onOptions((o) => {
   const c = (o && o.cfg) || {};
@@ -579,9 +609,10 @@ grist.onOptions((o) => {
 });
 grist.onRecords((rows) => {
   records = rows;
+  normRecords();
   renderBoard();
   if (modalId !== null && !rows.some((r) => r.id === modalId)) closeModal();
-}, { includeColumns: 'all', keepEncoded: true, format: 'rows' });
+}, { includeColumns: 'all', keepEncoded: true, expandRefs: false, format: 'rows' });
 renderBoard();
 loadMeta().then(() => {
   if (!cfg.cardFields.length) {
@@ -589,6 +620,7 @@ loadMeta().then(() => {
       .map((c) => ({ col: c.colId }));
   }
   if (!cfg.modalFields) cfg.modalFields = cfg.cardFields.map((f) => ({ col: f.col, w: defaultWidth(col(f.col)) }));
+  normRecords();
   renderBoard(); renderDrawer();
 }).catch((e) => { $('#kbBoard').innerHTML = `<div class="kb-empty"><p>Impossible de lire la structure de la table.</p><p class="fr-hint-text">${esc(e.message || e)}<br>Vérifiez que le widget a l’accès « Accès complet au document ».</p></div>`; });
 </script>
