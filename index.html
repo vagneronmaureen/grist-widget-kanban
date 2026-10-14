@@ -120,6 +120,7 @@ if (!IN_GRIST) {
     docApi: {
       async fetchTable(name) {
         if (name === '_grist_Tables') return { id: [1, 2], tableId: ['Tickets', 'Personnes'] };
+        if (name === 'Tickets') { const o = { id: mockRows.map((r) => r.id) }; tcols.forEach(([c]) => { o[c] = mockRows.map((r) => r[c]); }); return o; }
         if (name === 'Personnes') return people;
         const ids = [], out = { id: [], parentId: [], parentPos: [], colId: [], label: [], type: [], widgetOptions: [], visibleCol: [], isFormula: [] };
         tcols.forEach(([c, t], i) => {
@@ -586,6 +587,7 @@ document.addEventListener('drop', (e) => {
 /* Par défaut Grist renvoie le libellé des références, pas leur identifiant : on demande les identifiants
    (expandRefs: false) et, par sécurité, on retraduit un éventuel libellé en identifiant. */
 function refIdOf(c, v) {
+  if (Array.isArray(v) && v[0] === 'R') v = v[2];        // forme codée ['R', table, identifiant ou libellé]
   if (typeof v === 'number' || v == null || v === '') return v;
   const hit = (refs[c.colId]?.rows || []).find((x) => x.label === v);
   return hit ? hit.id : v;
@@ -607,12 +609,31 @@ grist.onOptions((o) => {
           modalFields: c.modalFields || cfg.modalFields };
   renderBoard();
 });
-grist.onRecords((rows) => {
-  records = rows;
+/* onRecords sert à savoir QUELLES lignes afficher (filtres, liens entre widgets) et à être prévenu des changements.
+   Les valeurs, elles, sont relues en brut (identifiants, dates en nombre, listes ['L', …]) : c'est le seul format
+   fiable, quelle que soit la version de Grist. */
+let loadSeq = 0;
+async function loadRecords(rows) {
+  const seq = ++loadSeq;
+  let raw = null;
+  try { raw = await grist.docApi.fetchTable(meta.tableId || await grist.getTable().getTableId()); } catch (e) {}
+  if (seq !== loadSeq) return;                           // une mise à jour plus récente est arrivée entre-temps
+  if (raw && Array.isArray(raw.id)) {
+    const idx = new Map(raw.id.map((id, i) => [id, i]));
+    const keys = Object.keys(raw).filter((k) => k !== 'id');
+    records = rows.map((row) => {
+      const i = idx.get(row.id);
+      if (i === undefined) return row;
+      const rec = { id: row.id };
+      keys.forEach((k) => { rec[k] = raw[k][i]; });
+      return rec;
+    });
+  } else records = rows;
   normRecords();
   renderBoard();
-  if (modalId !== null && !rows.some((r) => r.id === modalId)) closeModal();
-}, { includeColumns: 'all', keepEncoded: true, expandRefs: false, format: 'rows' });
+  if (modalId !== null && !records.some((r) => r.id === modalId)) closeModal();
+}
+grist.onRecords((rows) => { loadRecords(rows); }, { includeColumns: 'shown', keepEncoded: true, expandRefs: false, format: 'rows' });
 renderBoard();
 loadMeta().then(() => {
   if (!cfg.cardFields.length) {
