@@ -21,19 +21,13 @@
   .kb-col { flex: 0 0 290px; max-height: 100%; display: flex; flex-direction: column; border-radius: 4px;
             background: var(--col-bg); border-top: 4px solid var(--col-bar); position: relative; }
   .kb-col-head { display: flex; align-items: center; gap: .5rem; padding: .625rem .75rem; }
+  .kb-col-body { padding-bottom: .75rem !important; }
+  .kb-modal-head input.fr-input { font-size: 1.125rem; font-weight: 700; flex: 1; }
   .kb-col-name { font-weight: 700; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                  color: var(--text-title-grey, #161616); }
   .kb-count { background: #fff; border-radius: 1rem; padding: 0 .5rem; font-size: .75rem; font-weight: 700; line-height: 1.5rem; }
-  .kb-dot { width: 1.25rem; height: 1.25rem; border-radius: 50%; border: 2px solid #fff; cursor: pointer;
-            background: var(--col-bar); box-shadow: 0 0 0 1px var(--col-bar); padding: 0; }
-  .kb-picker { position: absolute; top: 2.9rem; right: .5rem; z-index: 20; background: #fff; padding: .5rem;
-               display: grid; grid-template-columns: repeat(6, 1.5rem); gap: .375rem;
-               box-shadow: 0 6px 18px rgba(0,0,0,.18); border-radius: 4px; }
-  .kb-picker button { width: 1.5rem; height: 1.5rem; border-radius: 50%; border: 2px solid #fff; cursor: pointer; padding: 0; }
-  .kb-picker button:hover { outline: 2px solid var(--text-action-high-blue-france, #000091); }
   .kb-col-body { padding: 0 .5rem .5rem; overflow-y: auto; display: flex; flex-direction: column; gap: .5rem; min-height: 3rem; flex: 1; }
   .kb-col-body.drag-over { outline: 2px dashed var(--col-bar); outline-offset: -4px; border-radius: 4px; }
-  .kb-add { margin: 0 .5rem .5rem; }
 
   .kb-card { background: #fff; border-radius: 4px; padding: .75rem; cursor: grab;
              box-shadow: 0 0 0 1px var(--border-default-grey, #ddd); }
@@ -165,17 +159,14 @@ const PALETTE = [
 ];
 const HIDE = /^(gristHelper_|manualSort)/;
 const GROUP_TYPES = ['Choice', 'ChoiceList', 'Ref', 'RefList'];
-const FORMS = [['texte', 'Texte'], ['date', 'Date'], ['pastille', 'Pastille']];
 
-let cfg = { groupCol: null, titleCol: null, cardFields: [], modalCols: null, colors: {} };
+let cfg = { groupCol: null, titleCol: null, cardFields: [], modalFields: null };
 let meta = { loaded: false, tableId: '', cols: [], by: {} };
 let refs = {};            // colId -> { rows:[{id,label}], map:{id:label} }
 let records = [];
 let search = '';
 let modalId = null, getters = [];
-let pickerIdx = null;
 let drag = null;
-let pendingOpen = null;
 let defsCache = [];
 
 const $ = (s) => document.querySelector(s);
@@ -245,7 +236,7 @@ function fmtDate(sec, withTime) {
 }
 function valueList(c, raw) {
   switch (c.base) {
-    case 'Ref': case 'RefList': return asList(raw).map((id) => (refs[c.colId]?.map[id] ?? '#' + id));
+    case 'Ref': case 'RefList': return asList(raw).map((id) => (refs[c.colId]?.map[id] ?? String(id)));
     case 'Choice': case 'ChoiceList': return asList(raw).map(String);
     case 'Date': return raw == null || raw === '' ? [] : [fmtDate(raw)];
     case 'DateTime': return raw == null || raw === '' ? [] : [fmtDate(raw, true)];
@@ -279,8 +270,6 @@ function groupDefs() {
   return defs.map((d, i) => ({ ...d, idx: i, color: colorOf(d, i) }));
 }
 function colorOf(d, i) {
-  const saved = cfg.colors[String(d.key)];
-  if (saved) { const p = PALETTE.find((x) => x.bar === saved); if (p) return p; }
   if (d.color) return { bar: d.color, bg: '#f6f6f6' };
   if (d.key === null) return PALETTE[11];
   return PALETTE[(i - 1) % 10];
@@ -298,27 +287,31 @@ function matches(r) {
 /* ------------------------------------------------------------------ *
  * Rendu du board
  * ------------------------------------------------------------------ */
+/* La forme d'affichage dépend du type du champ (pas de réglage) */
+function formOf(c) {
+  if (c.base === 'Date' || c.base === 'DateTime') return 'date';
+  if (['Choice', 'ChoiceList', 'Ref', 'RefList'].includes(c.base)) return 'pastille';
+  return 'texte';
+}
 function fieldHtml(f, r) {
   const c = col(f.col); if (!c) return '';
   const vals = valueList(c, r[f.col]);
   if (!vals.length) return '';
-  if (f.as === 'pastille') {
+  const form = formOf(c);
+  if (form === 'pastille') {
     return `<div class="kb-badges">${vals.map((v) => { const k = badgeColor(c, v); return `<span class="kb-badge" style="background:${k.bg};color:${k.fg}">${esc(v)}</span>`; }).join('')}</div>`;
   }
-  if (f.as === 'date') {
+  if (form === 'date') {
     return `<div class="kb-f"><span class="fr-icon-calendar-line fr-icon--sm" aria-hidden="true"></span><span>${esc(vals.join(', '))}</span></div>`;
   }
   return `<div class="kb-f"><span class="kb-f-label">${esc(c.label)} :</span><span>${esc(vals.join(', '))}</span></div>`;
 }
 function cardHtml(r, d) {
   const title = displayText(cfg.titleCol, r) || 'Sans titre';
-  const fields = cfg.cardFields.map((f) => fieldHtml(f, r));
-  const badges = [], rows = [];
-  cfg.cardFields.forEach((f, i) => (f.as === 'pastille' ? badges : rows).push(fields[i]));
+  const fields = cfg.cardFields.map((f) => fieldHtml(f, r)).filter(Boolean);
   return `<article class="kb-card" draggable="true" data-id="${r.id}" data-idx="${d.idx}">
     <h3 class="kb-card-title">${esc(title)}</h3>
-    ${badges.join('')}
-    ${rows.some(Boolean) ? `<div class="kb-fields">${rows.join('')}</div>` : ''}
+    ${fields.length ? `<div class="kb-fields">${fields.join('')}</div>` : ''}
   </article>`;
 }
 function renderBoard() {
@@ -339,11 +332,8 @@ function renderBoard() {
       <div class="kb-col-head">
         <span class="kb-col-name" title="${esc(d.label)}">${esc(d.label)}</span>
         <span class="kb-count">${cards.length}</span>
-        <button class="kb-dot" data-act="picker" data-idx="${d.idx}" title="Couleur de la colonne" aria-label="Changer la couleur"></button>
       </div>
-      ${pickerIdx === d.idx ? `<div class="kb-picker">${PALETTE.map((p) => `<button data-act="color" data-idx="${d.idx}" data-bar="${p.bar}" title="${p.n}" style="background:${p.bar}"></button>`).join('')}</div>` : ''}
       <div class="kb-col-body" data-idx="${d.idx}">${cards.map((r) => cardHtml(r, d)).join('')}</div>
-      <button class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm fr-icon-add-line fr-btn--icon-left kb-add" data-act="add" data-idx="${d.idx}">Ajouter une carte</button>
     </section>`;
   }).join('');
 }
@@ -375,28 +365,19 @@ function moveCard(id, fromIdx, toIdx) {
   } else val = encodeGroup(gc, to);
   saveFields(id, { [gc.colId]: val });
 }
-async function addCard(idx) {
-  const gc = col(cfg.groupCol); if (!gc) return;
-  const fields = { [gc.colId]: encodeGroup(gc, defsCache[idx].key) };
-  try {
-    const res = await grist.getTable().create({ fields });
-    pendingOpen = (res && (res.id ?? (res[0] && res[0].id))) ?? null;
-    if (pendingOpen != null && records.some((r) => r.id === pendingOpen)) { openModal(pendingOpen); pendingOpen = null; }
-  } catch (e) { toast('Création impossible : ' + (e.message || e), true); }
-}
 
 /* ------------------------------------------------------------------ *
  * Popup d'édition
  * ------------------------------------------------------------------ */
-function modalCols() {
-  const ids = cfg.modalCols || meta.cols.map((c) => c.colId);
-  const list = [cfg.titleCol, ...ids.filter((i) => i !== cfg.titleCol)].filter((i) => col(i));
-  return list.filter((v, i) => list.indexOf(v) === i);
+/* Champs de la fenêtre de détail : liste ordonnée { col, w: 'full' | 'half' } (le titre est édité dans l'en-tête) */
+function modalList() {
+  return (cfg.modalFields || []).filter((f) => col(f.col) && f.col !== cfg.titleCol);
 }
-function editorHtml(c, raw, i) {
+const defaultWidth = (c) => (c && ['Text', 'ChoiceList', 'RefList'].includes(c.base) ? 'full' : 'half');
+function editorHtml(c, raw, i, full) {
   const id = 'f' + i, lab = `<label class="fr-label" for="${id}">${esc(c.label)}</label>`;
   const ro = c.readOnly;
-  const wrap = (inner, full) => `<div class="fr-input-group ${full ? 'kb-full' : ''}">${lab}${inner}</div>`;
+  const wrap = (inner) => `<div class="fr-input-group ${full ? 'kb-full' : ''}">${lab}${inner}</div>`;
   const checks = (items, sel) => `<div class="kb-checks" id="${id}">${items.map((it) =>
     `<label><input type="checkbox" value="${esc(it.v)}" ${sel.includes(it.v) ? 'checked' : ''} ${ro ? 'disabled' : ''}>${esc(it.l)}</label>`).join('')}</div>`;
   switch (c.base) {
@@ -408,7 +389,7 @@ function editorHtml(c, raw, i) {
       return wrap(`<input class="fr-input" id="${id}" type="number" step="${c.base === 'Int' ? 1 : 'any'}" value="${raw ?? ''}" ${ro ? 'disabled' : ''}>`);
     case 'Bool':
       getters.push([c, () => $('#' + id).checked]);
-      return `<div class="fr-checkbox-group" style="margin-bottom:1rem"><input type="checkbox" id="${id}" ${raw ? 'checked' : ''} ${ro ? 'disabled' : ''}><label class="fr-label" for="${id}">${esc(c.label)}</label></div>`;
+      return `<div class="fr-checkbox-group ${full ? 'kb-full' : ''}" style="margin-bottom:1rem"><input type="checkbox" id="${id}" ${raw ? 'checked' : ''} ${ro ? 'disabled' : ''}><label class="fr-label" for="${id}">${esc(c.label)}</label></div>`;
     case 'Date': {
       const v = typeof raw === 'number' ? new Date(raw * 1000).toISOString().slice(0, 10) : '';
       getters.push([c, () => { const s = $('#' + id).value; return s ? Date.parse(s + 'T00:00:00Z') / 1000 : null; }]);
@@ -448,10 +429,19 @@ function editorHtml(c, raw, i) {
 function openModal(id) {
   const r = records.find((x) => x.id === id); if (!r) return;
   modalId = id; getters = [];
-  const fields = modalCols().map((cid, i) => editorHtml(col(cid), r[cid], i)).join('');
+  const tc = col(cfg.titleCol);
+  let head;
+  if (tc && tc.base === 'Text' && !tc.readOnly) {
+    getters.push([tc, () => $('#kbModalTitle').value]);
+    head = `<input class="fr-input" id="kbModalTitle" aria-label="${esc(tc.label)}" value="${esc(r[cfg.titleCol] ?? '')}">`;
+  } else head = `<h2 id="kbModalTitle">${esc(displayText(cfg.titleCol, r) || 'Sans titre')}</h2>`;
+  const list = modalList();
+  const fields = list.length
+    ? list.map((f, i) => editorHtml(col(f.col), r[f.col], i, f.w === 'full')).join('')
+    : '<p class="fr-hint-text kb-full">Aucun autre champ. Ajoutez-en depuis « Configurer ».</p>';
   const ov = $('#kbOverlay');
   ov.innerHTML = `<div class="kb-modal" role="dialog" aria-modal="true" aria-labelledby="kbModalTitle">
-    <div class="kb-modal-head"><h2 id="kbModalTitle">${esc(displayText(cfg.titleCol, r) || 'Sans titre')}</h2>
+    <div class="kb-modal-head">${head}
       <button class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm fr-icon-close-line" data-act="close" title="Fermer">Fermer</button></div>
     <div class="kb-modal-body">${fields}</div>
     <div class="kb-modal-foot">
@@ -483,26 +473,31 @@ function renderDrawer() {
   if (!meta.loaded) { d.innerHTML = ''; return; }
   const opt = (arr, sel) => arr.map((c) => `<option value="${esc(c.colId)}" ${c.colId === sel ? 'selected' : ''}>${esc(c.label)}</option>`).join('');
   const groupable = meta.cols.filter((c) => GROUP_TYPES.includes(c.base));
-  const free = meta.cols.filter((c) => c.colId !== cfg.titleCol && !cfg.cardFields.some((f) => f.col === c.colId));
-  const modalSel = cfg.modalCols || meta.cols.map((c) => c.colId);
+  const freeCard = meta.cols.filter((c) => c.colId !== cfg.titleCol && !cfg.cardFields.some((f) => f.col === c.colId));
+  const mf = cfg.modalFields || [];
+  const freeModal = meta.cols.filter((c) => c.colId !== cfg.titleCol && !mf.some((f) => f.col === c.colId));
+  const rows = (name, list) => list.map((f, i) => `<div class="kb-row"><span class="kb-row-name">${esc(col(f.col)?.label || f.col)}</span>
+        ${name === 'modal' ? `<select class="fr-select fr-select--sm" data-cfg="width" data-i="${i}" aria-label="Largeur">
+          <option value="half" ${f.w !== 'full' ? 'selected' : ''}>Demi-largeur</option><option value="full" ${f.w === 'full' ? 'selected' : ''}>Pleine largeur</option></select>` : ''}
+        <button class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm fr-icon-arrow-up-line" data-act="up" data-list="${name}" data-i="${i}" title="Monter">Monter</button>
+        <button class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm fr-icon-arrow-down-line" data-act="down" data-list="${name}" data-i="${i}" title="Descendre">Descendre</button>
+        <button class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm fr-icon-delete-line" data-act="rm" data-list="${name}" data-i="${i}" title="Retirer">Retirer</button></div>`).join('');
   d.innerHTML = `
     <section style="display:flex;align-items:center;gap:.5rem"><h3 style="flex:1;margin:0">Configuration du kanban</h3>
       <button class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm fr-icon-close-line" data-act="closeSettings" title="Fermer">Fermer</button></section>
     <section><h3>Colonnes du kanban</h3>
       <select class="fr-select" data-cfg="groupCol"><option value="">— Choisir —</option>${opt(groupable, cfg.groupCol)}</select>
-      <p class="fr-hint-text" style="margin-top:.5rem">Liste de choix ou référence. Pour changer la couleur d’une colonne, cliquez sur la pastille dans son en-tête.</p>
-      <button class="fr-btn fr-btn--tertiary fr-btn--sm" data-act="resetColors">Réinitialiser les couleurs</button></section>
+      <p class="fr-hint-text" style="margin-top:.5rem">Liste de choix ou référence.</p></section>
     <section><h3>Titre de la carte</h3>
       <select class="fr-select" data-cfg="titleCol">${opt(meta.cols, cfg.titleCol)}</select></section>
     <section><h3>Champs sous le titre</h3>
-      ${cfg.cardFields.map((f, i) => `<div class="kb-row"><span class="kb-row-name">${esc(col(f.col)?.label || f.col)}</span>
-        <select class="fr-select fr-select--sm" data-cfg="form" data-i="${i}">${FORMS.map(([v, l]) => `<option value="${v}" ${v === f.as ? 'selected' : ''}>${l}</option>`).join('')}</select>
-        <button class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm fr-icon-arrow-up-line" data-act="up" data-i="${i}" title="Monter">Monter</button>
-        <button class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm fr-icon-arrow-down-line" data-act="down" data-i="${i}" title="Descendre">Descendre</button>
-        <button class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm fr-icon-delete-line" data-act="rm" data-i="${i}" title="Retirer">Retirer</button></div>`).join('')}
-      <select class="fr-select" data-cfg="addField"><option value="">+ Ajouter un champ…</option>${opt(free, '')}</select></section>
+      ${rows('card', cfg.cardFields)}
+      <select class="fr-select" data-cfg="addCard" aria-label="Ajouter un champ à la carte"><option value="">+ Ajouter un champ…</option>${opt(freeCard, '')}</select>
+      <p class="fr-hint-text" style="margin-top:.5rem">L’affichage suit le type du champ : pastille pour les choix et références, icône pour les dates, texte sinon.</p></section>
     <section><h3>Champs de la fenêtre de détail</h3>
-      <div class="kb-checks" style="max-height:16rem">${meta.cols.map((c) => `<label><input type="checkbox" data-cfg="modal" value="${esc(c.colId)}" ${modalSel.includes(c.colId) ? 'checked' : ''}>${esc(c.label)}</label>`).join('')}</div></section>`;
+      ${rows('modal', mf)}
+      <select class="fr-select" data-cfg="addModal" aria-label="Ajouter un champ à la fenêtre de détail"><option value="">+ Ajouter un champ…</option>${opt(freeModal, '')}</select>
+      <p class="fr-hint-text" style="margin-top:.5rem">Le titre est modifiable en haut de la fenêtre. Les champs se placent sur une grille à deux colonnes.</p></section>`;
 }
 function openSettings() { renderDrawer(); $('#kbDrawer').classList.add('open'); }
 
@@ -510,7 +505,6 @@ function openSettings() { renderDrawer(); $('#kbDrawer').classList.add('open'); 
  * Événements
  * ------------------------------------------------------------------ */
 document.addEventListener('click', async (e) => {
-  if (pickerIdx !== null && !e.target.closest('.kb-picker') && !e.target.closest('[data-act=picker]')) { pickerIdx = null; renderBoard(); }
   const a = e.target.closest('[data-act]');
   if (!a) {
     const card = e.target.closest('.kb-card');
@@ -525,29 +519,27 @@ document.addEventListener('click', async (e) => {
     case 'close': closeModal(); break;
     case 'save': saveModal(); break;
     case 'refresh': await loadMeta(); renderBoard(); renderDrawer(); toast('Structure rechargée'); break;
-    case 'picker': pickerIdx = pickerIdx === idx ? null : idx; renderBoard(); break;
-    case 'color': cfg.colors[String(defsCache[idx].key)] = a.dataset.bar; pickerIdx = null; persist(); break;
-    case 'resetColors': cfg.colors = {}; persist(); break;
-    case 'add': addCard(idx); break;
-    case 'up': if (i > 0) { [cfg.cardFields[i - 1], cfg.cardFields[i]] = [cfg.cardFields[i], cfg.cardFields[i - 1]]; persist(); } break;
-    case 'down': if (i < cfg.cardFields.length - 1) { [cfg.cardFields[i + 1], cfg.cardFields[i]] = [cfg.cardFields[i], cfg.cardFields[i + 1]]; persist(); } break;
-    case 'rm': cfg.cardFields.splice(i, 1); persist(); break;
+    case 'up': case 'down': case 'rm': {
+      const list = a.dataset.list === 'modal' ? cfg.modalFields : cfg.cardFields;
+      if (!list) break;
+      if (a.dataset.act === 'rm') list.splice(i, 1);
+      else {
+        const j = a.dataset.act === 'up' ? i - 1 : i + 1;
+        if (j < 0 || j >= list.length) break;
+        [list[i], list[j]] = [list[j], list[i]];
+      }
+      persist();
+      break;
+    }
   }
 });
 document.addEventListener('change', (e) => {
   const t = e.target, k = t.dataset && t.dataset.cfg; if (!k) return;
   if (k === 'groupCol') cfg.groupCol = t.value || null;
   else if (k === 'titleCol') cfg.titleCol = t.value;
-  else if (k === 'form') cfg.cardFields[Number(t.dataset.i)].as = t.value;
-  else if (k === 'addField' && t.value) {
-    const c = col(t.value);
-    const as = ['Date', 'DateTime'].includes(c.base) ? 'date' : ['Choice', 'ChoiceList', 'Ref', 'RefList'].includes(c.base) ? 'pastille' : 'texte';
-    cfg.cardFields.push({ col: t.value, as });
-  } else if (k === 'modal') {
-    const set = new Set(cfg.modalCols || meta.cols.map((c) => c.colId));
-    t.checked ? set.add(t.value) : set.delete(t.value);
-    cfg.modalCols = meta.cols.map((c) => c.colId).filter((id) => set.has(id));
-  }
+  else if (k === 'width') cfg.modalFields[Number(t.dataset.i)].w = t.value;
+  else if (k === 'addCard') { if (t.value) cfg.cardFields.push({ col: t.value }); }
+  else if (k === 'addModal') { if (t.value) (cfg.modalFields = cfg.modalFields || []).push({ col: t.value, w: defaultWidth(col(t.value)) }); }
   persist();
 });
 $('#kbSearch').addEventListener('input', (e) => { search = e.target.value.trim().toLowerCase(); renderBoard(); });
@@ -582,12 +574,11 @@ grist.ready({ requiredAccess: 'full', onEditOptions: openSettings });
 grist.onOptions((o) => {
   const c = (o && o.cfg) || {};
   cfg = { groupCol: c.groupCol || cfg.groupCol, titleCol: c.titleCol || cfg.titleCol, cardFields: c.cardFields || cfg.cardFields,
-          modalCols: c.modalCols !== undefined ? c.modalCols : cfg.modalCols, colors: c.colors || cfg.colors };
+          modalFields: c.modalFields || cfg.modalFields };
   renderBoard();
 });
 grist.onRecords((rows) => {
   records = rows;
-  if (pendingOpen != null && rows.some((r) => r.id === pendingOpen)) { const id = pendingOpen; pendingOpen = null; renderBoard(); openModal(id); return; }
   renderBoard();
   if (modalId !== null && !rows.some((r) => r.id === modalId)) closeModal();
 }, { includeColumns: 'all', keepEncoded: true, format: 'rows' });
@@ -595,8 +586,9 @@ renderBoard();
 loadMeta().then(() => {
   if (!cfg.cardFields.length) {
     cfg.cardFields = meta.cols.filter((c) => c.colId !== cfg.titleCol && c.colId !== cfg.groupCol && ['Date', 'Choice', 'Ref'].includes(c.base)).slice(0, 3)
-      .map((c) => ({ col: c.colId, as: c.base === 'Date' ? 'date' : 'pastille' }));
+      .map((c) => ({ col: c.colId }));
   }
+  if (!cfg.modalFields) cfg.modalFields = cfg.cardFields.map((f) => ({ col: f.col, w: defaultWidth(col(f.col)) }));
   renderBoard(); renderDrawer();
 }).catch((e) => { $('#kbBoard').innerHTML = `<div class="kb-empty"><p>Impossible de lire la structure de la table.</p><p class="fr-hint-text">${esc(e.message || e)}<br>Vérifiez que le widget a l’accès « Accès complet au document ».</p></div>`; });
 </script>

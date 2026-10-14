@@ -9,15 +9,15 @@ Un seul fichier (`index.html`), sans build ni dépendance à installer.
 - **Colonnes du kanban** : alimentées par une colonne de type *Choice*, *ChoiceList*, *Ref* ou *RefList*.
 - **Glisser-déposer** des cartes d'une colonne à l'autre : la valeur est mise à jour dans Grist.
   - Pour une *RefList* ou une *ChoiceList*, la carte quitte la colonne d'origine et rejoint la nouvelle, les autres valeurs sont conservées.
-- **Couleurs des colonnes modifiables** : pastille dans l'en-tête de chaque colonne, palette de 12 couleurs DSFR. Pour une liste de choix colorée dans Grist, la couleur du choix est reprise par défaut.
+- **Couleurs des colonnes** : reprises des couleurs des choix définies dans Grist, sinon une palette DSFR par défaut.
 - **Cartes configurables** :
   - le titre est choisi parmi les champs de la table ;
-  - des champs complémentaires s'affichent sous le titre, sous trois formes : *texte*, *date* (avec icône) ou *pastille* colorée ;
-  - ajout, retrait et réordonnancement des champs.
+  - des champs complémentaires s'affichent sous le titre, ajoutés un à un et réordonnables ;
+  - leur affichage suit le type du champ (aucun réglage) : *pastille* colorée pour les choix et références, *date* avec icône pour les dates, *texte* avec libellé sinon.
 - **Fenêtre de détail** au clic sur une carte :
-  - affiche des champs supplémentaires par rapport à la carte, au choix ;
+  - les champs sont ajoutés un à un depuis la configuration, avec leur **ordre** et leur **largeur** (demi-largeur ou pleine largeur) ;
+  - le titre est modifiable en haut de la fenêtre ;
   - tous les champs sont modifiables (sauf les colonnes formules).
-- **Ajout de carte** depuis une colonne (la nouvelle carte est créée avec la valeur de la colonne).
 - **Recherche** dans les titres et champs des cartes.
 
 ## Types de colonnes pris en charge dans la fenêtre de détail
@@ -58,8 +58,8 @@ Cliquez sur **Configurer** en haut du widget (ou sur l'option « Open configurat
 
 1. **Colonnes du kanban** : choisissez la colonne Choice / Ref qui définit les colonnes.
 2. **Titre de la carte** : choisissez le champ utilisé comme titre.
-3. **Champs sous le titre** : ajoutez des champs et choisissez leur forme.
-4. **Champs de la fenêtre de détail** : cochez les champs à afficher dans la popup.
+3. **Champs sous le titre** : ajoutez des champs un à un et ordonnez-les.
+4. **Champs de la fenêtre de détail** : ajoutez des champs un à un, ordonnez-les et choisissez pour chacun demi-largeur ou pleine largeur.
 
 La configuration est enregistrée avec le widget dans le document Grist.
 
@@ -72,7 +72,7 @@ Ouvrez `index.html` directement dans un navigateur : le widget passe en **mode d
 - L'ordre des cartes à l'intérieur d'une colonne n'est pas géré.
 - Les valeurs *DateTime* sont lues et écrites sans tenir compte du fuseau horaire de la colonne.
 - Les styles DSFR et les icônes sont chargés depuis le CDN jsDelivr (`@gouvfr/dsfr@1.12.1`) : une connexion internet est nécessaire. Pour une utilisation hors ligne ou sans CDN, hébergez les fichiers DSFR avec le widget et modifiez les deux balises `<link>` en tête de `index.html`.
-- La structure de la table (colonnes, choix, contenu des tables référencées) est lue au chargement : utilisez le bouton **Recharger** après l'avoir modifiée.
+- Les cartes se mettent à jour en direct, mais la structure (liste des colonnes, choix d'une liste de choix, contenu des tables référencées) est lue au chargement : utilisez le bouton **Recharger** après l'avoir modifiée dans Grist (nouveau choix, nouvelle personne dans une table référencée, colonne renommée…).
 
 ## Note sur le DSFR
 
