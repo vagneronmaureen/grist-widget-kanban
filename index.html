@@ -34,10 +34,11 @@
   .kb-card:hover { box-shadow: 0 0 0 1px var(--text-action-high-blue-france, #000091), 0 2px 6px rgba(0,0,0,.12); }
   .kb-card.dragging { opacity: .4; }
   .kb-card-title { margin: 0 0 .25rem; font-size: 1rem; line-height: 1.4; font-weight: 700; color: var(--text-title-grey, #161616); }
-  .kb-fields { display: flex; flex-direction: column; gap: .25rem; margin-top: .25rem; font-size: .875rem; }
-  .kb-f { display: flex; gap: .375rem; align-items: baseline; }
-  .kb-f-label { color: var(--text-mention-grey, #666); flex: none; }
-  .kb-badges { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .25rem; }
+  .kb-fields { display: flex; flex-direction: column; gap: .5rem; margin-top: .5rem; font-size: .875rem; }
+  .kb-f { display: block; }
+  .kb-f-label { color: var(--text-mention-grey, #666); font-size: .75rem; line-height: 1.25rem; }
+  .kb-f-val { line-height: 1.5rem; }
+  .kb-badges { display: flex; flex-wrap: wrap; gap: .25rem; }
   .kb-badge { display: inline-block; border-radius: .25rem; padding: 0 .5rem; font-size: .75rem; font-weight: 700;
               line-height: 1.5rem; text-transform: uppercase; letter-spacing: .02em; }
 
@@ -62,6 +63,12 @@
   .kb-row { display: flex; gap: .375rem; align-items: center; margin-bottom: .375rem; }
   .kb-row .kb-row-name { flex: 1; font-size: .875rem; overflow: hidden; text-overflow: ellipsis; }
   .kb-row select { width: auto; }
+  .kb-row { border-radius: 4px; padding: .125rem .25rem; background: #fff; }
+  .kb-grip { cursor: grab; font-size: 1.25rem; line-height: 1; color: var(--text-mention-grey, #666); padding: 0 .25rem; user-select: none; }
+  .kb-row:hover .kb-grip { color: var(--text-action-high-blue-france, #000091); }
+  .kb-row.row-dragging { opacity: .4; }
+  .kb-row.drop-before { box-shadow: 0 -2px 0 var(--text-action-high-blue-france, #000091); }
+  .kb-row.drop-after { box-shadow: 0 2px 0 var(--text-action-high-blue-france, #000091); }
   .kb-toast { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); background: #3a3a3a; color: #fff;
               padding: .5rem 1rem; border-radius: 4px; z-index: 60; display: none; font-size: .875rem; }
   .kb-toast.err { background: #ce0500; }
@@ -305,18 +312,21 @@ function formOf(c) {
   if (['Choice', 'ChoiceList', 'Ref', 'RefList'].includes(c.base)) return 'pastille';
   return 'texte';
 }
+/* Chaque champ s'affiche avec son titre (libellé de la colonne) au-dessus de sa valeur */
 function fieldHtml(f, r) {
   const c = col(f.col); if (!c) return '';
   const vals = valueList(c, r[f.col]);
   if (!vals.length) return '';
   const form = formOf(c);
+  let body;
   if (form === 'pastille') {
-    return `<div class="kb-badges">${vals.map((v) => { const k = badgeColor(c, v); return `<span class="kb-badge" style="background:${k.bg};color:${k.fg}">${esc(v)}</span>`; }).join('')}</div>`;
+    body = `<div class="kb-badges">${vals.map((v) => { const k = badgeColor(c, v); return `<span class="kb-badge" style="background:${k.bg};color:${k.fg}">${esc(v)}</span>`; }).join('')}</div>`;
+  } else if (form === 'date') {
+    body = `<div class="kb-f-val"><span class="fr-icon-calendar-line fr-icon--sm" aria-hidden="true"></span> ${esc(vals.join(', '))}</div>`;
+  } else {
+    body = `<div class="kb-f-val">${esc(vals.join(', '))}</div>`;
   }
-  if (form === 'date') {
-    return `<div class="kb-f"><span class="fr-icon-calendar-line fr-icon--sm" aria-hidden="true"></span><span>${esc(vals.join(', '))}</span></div>`;
-  }
-  return `<div class="kb-f"><span class="kb-f-label">${esc(c.label)} :</span><span>${esc(vals.join(', '))}</span></div>`;
+  return `<div class="kb-f"><div class="kb-f-label">${esc(c.label)}</div>${body}</div>`;
 }
 function cardHtml(r, d) {
   const title = displayText(cfg.titleCol, r) || 'Sans titre';
@@ -490,11 +500,11 @@ function renderDrawer() {
   const freeCard = meta.cols.filter((c) => c.colId !== cfg.titleCol && !cfg.cardFields.some((f) => f.col === c.colId));
   const mf = cfg.modalFields || [];
   const freeModal = meta.cols.filter((c) => c.colId !== cfg.titleCol && !mf.some((f) => f.col === c.colId));
-  const rows = (name, list) => list.map((f, i) => `<div class="kb-row"><span class="kb-row-name">${esc(col(f.col)?.label || f.col)}</span>
+  const rows = (name, list) => list.map((f, i) => `<div class="kb-row" draggable="false" data-list="${name}" data-i="${i}">
+        <span class="kb-grip" title="Glisser pour réordonner" aria-label="Glisser pour réordonner">⠿</span>
+        <span class="kb-row-name">${esc(col(f.col)?.label || f.col)}</span>
         ${name === 'modal' ? `<select class="fr-select fr-select--sm" data-cfg="width" data-i="${i}" aria-label="Largeur">
           <option value="half" ${f.w !== 'full' ? 'selected' : ''}>Demi-largeur</option><option value="full" ${f.w === 'full' ? 'selected' : ''}>Pleine largeur</option></select>` : ''}
-        <button class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm fr-icon-arrow-up-line" data-act="up" data-list="${name}" data-i="${i}" title="Monter">Monter</button>
-        <button class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm fr-icon-arrow-down-line" data-act="down" data-list="${name}" data-i="${i}" title="Descendre">Descendre</button>
         <button class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm fr-icon-delete-line" data-act="rm" data-list="${name}" data-i="${i}" title="Retirer">Retirer</button></div>`).join('');
   d.innerHTML = `
     <section style="display:flex;align-items:center;gap:.5rem"><h3 style="flex:1;margin:0">Configuration du kanban</h3>
@@ -507,11 +517,11 @@ function renderDrawer() {
     <section><h3>Champs sous le titre</h3>
       ${rows('card', cfg.cardFields)}
       <select class="fr-select" data-cfg="addCard" aria-label="Ajouter un champ à la carte"><option value="">+ Ajouter un champ…</option>${opt(freeCard, '')}</select>
-      <p class="fr-hint-text" style="margin-top:.5rem">L’affichage suit le type du champ : pastille pour les choix et références, icône pour les dates, texte sinon.</p></section>
+      <p class="fr-hint-text" style="margin-top:.5rem">Glissez la poignée ⠿ pour réordonner. L’affichage suit le type du champ : pastille pour les choix et références, icône pour les dates, texte sinon. Le titre du champ s’affiche au-dessus de sa valeur.</p></section>
     <section><h3>Champs de la fenêtre de détail</h3>
       ${rows('modal', mf)}
       <select class="fr-select" data-cfg="addModal" aria-label="Ajouter un champ à la fenêtre de détail"><option value="">+ Ajouter un champ…</option>${opt(freeModal, '')}</select>
-      <p class="fr-hint-text" style="margin-top:.5rem">Le titre est modifiable en haut de la fenêtre. Les champs se placent sur une grille à deux colonnes.</p></section>`;
+      <p class="fr-hint-text" style="margin-top:.5rem">Glissez la poignée ⠿ pour réordonner. Le titre est modifiable en haut de la fenêtre. Les champs se placent sur une grille à deux colonnes.</p></section>`;
 }
 function openSettings() { renderDrawer(); $('#kbDrawer').classList.add('open'); }
 
@@ -533,15 +543,10 @@ document.addEventListener('click', async (e) => {
     case 'close': closeModal(); break;
     case 'save': saveModal(); break;
     case 'refresh': await loadMeta(); normRecords(); renderBoard(); renderDrawer(); toast('Structure rechargée'); break;
-    case 'up': case 'down': case 'rm': {
+    case 'rm': {
       const list = a.dataset.list === 'modal' ? cfg.modalFields : cfg.cardFields;
       if (!list) break;
-      if (a.dataset.act === 'rm') list.splice(i, 1);
-      else {
-        const j = a.dataset.act === 'up' ? i - 1 : i + 1;
-        if (j < 0 || j >= list.length) break;
-        [list[i], list[j]] = [list[j], list[i]];
-      }
+      list.splice(i, 1);
       persist();
       break;
     }
@@ -559,22 +564,64 @@ document.addEventListener('change', (e) => {
 $('#kbSearch').addEventListener('input', (e) => { search = e.target.value.trim().toLowerCase(); renderBoard(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeModal(); $('#kbDrawer').classList.remove('open'); } });
 
-/* Glisser-déposer */
+/* Réordonnancement des champs (panneau de configuration) : on ne peut saisir une ligne que par sa poignée */
+let rdrag = null;   // { list: 'card' | 'modal', i, target?: { i, after } }
+const clearRowMarks = () => document.querySelectorAll('.kb-row.row-dragging,.kb-row.drop-before,.kb-row.drop-after')
+  .forEach((n) => n.classList.remove('row-dragging', 'drop-before', 'drop-after'));
+document.addEventListener('mousedown', (e) => {
+  const g = e.target.closest && e.target.closest('.kb-grip');
+  if (g) g.closest('.kb-row').draggable = true;
+});
+document.addEventListener('mouseup', () => document.querySelectorAll('.kb-row[draggable=true]').forEach((n) => (n.draggable = false)));
 document.addEventListener('dragstart', (e) => {
+  const row = e.target.closest && e.target.closest('.kb-row');
+  if (row) {
+    rdrag = { list: row.dataset.list, i: Number(row.dataset.i) };
+    row.classList.add('row-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', 'field'); } catch (x) {}
+    return;
+  }
   const card = e.target.closest && e.target.closest('.kb-card'); if (!card) return;
   drag = { id: Number(card.dataset.id), from: Number(card.dataset.idx) };
   card.classList.add('dragging');
   e.dataTransfer.effectAllowed = 'move';
   try { e.dataTransfer.setData('text/plain', String(drag.id)); } catch (x) {}
 });
-document.addEventListener('dragend', () => { drag = null; document.querySelectorAll('.dragging,.drag-over').forEach((n) => n.classList.remove('dragging', 'drag-over')); });
+document.addEventListener('dragend', () => {
+  drag = null; rdrag = null; clearRowMarks();
+  document.querySelectorAll('.kb-row[draggable=true]').forEach((n) => (n.draggable = false));
+  document.querySelectorAll('.dragging,.drag-over').forEach((n) => n.classList.remove('dragging', 'drag-over'));
+});
 document.addEventListener('dragover', (e) => {
+  if (rdrag) {
+    const row = e.target.closest && e.target.closest('.kb-row');
+    if (!row || row.dataset.list !== rdrag.list) return;
+    e.preventDefault();
+    const r = row.getBoundingClientRect(), after = e.clientY > r.top + r.height / 2;
+    clearRowMarks();
+    document.querySelectorAll('.kb-row').forEach((n) => { if (n.dataset.list === rdrag.list && Number(n.dataset.i) === rdrag.i) n.classList.add('row-dragging'); });
+    row.classList.add(after ? 'drop-after' : 'drop-before');
+    rdrag.target = { i: Number(row.dataset.i), after };
+    return;
+  }
   const body = e.target.closest && e.target.closest('.kb-col'); if (!body || !drag) return;
   e.preventDefault();
   document.querySelectorAll('.drag-over').forEach((n) => n.classList.remove('drag-over'));
   body.querySelector('.kb-col-body').classList.add('drag-over');
 });
 document.addEventListener('drop', (e) => {
+  if (rdrag) {
+    e.preventDefault();
+    const { list: name, i: from, target } = rdrag;
+    rdrag = null; clearRowMarks();
+    const list = name === 'modal' ? cfg.modalFields : cfg.cardFields;
+    if (!list || !target) return;
+    let to = target.i + (target.after ? 1 : 0);
+    if (from < to) to--;
+    if (to !== from) { const [it] = list.splice(from, 1); list.splice(to, 0, it); persist(); }
+    return;
+  }
   const colEl = e.target.closest && e.target.closest('.kb-col'); if (!colEl || !drag) return;
   e.preventDefault();
   const { id, from } = drag; drag = null;

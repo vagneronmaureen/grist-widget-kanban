@@ -12,10 +12,11 @@ Un seul fichier (`index.html`), sans build ni dépendance à installer.
 - **Couleurs des colonnes** : reprises des couleurs des choix définies dans Grist, sinon une palette DSFR par défaut.
 - **Cartes configurables** :
   - le titre est choisi parmi les champs de la table ;
-  - des champs complémentaires s'affichent sous le titre, ajoutés un à un et réordonnables ;
-  - leur affichage suit le type du champ (aucun réglage) : *pastille* colorée pour les choix et références, *date* avec icône pour les dates, *texte* avec libellé sinon.
+  - des champs complémentaires s'affichent sous le titre, ajoutés un à un et réordonnables par **glisser-déposer** (poignée ⠿) ;
+  - chaque champ s'affiche avec son **titre** (libellé de la colonne) au-dessus de sa valeur ;
+  - la forme de la valeur suit le type du champ (aucun réglage) : *pastille* colorée pour les choix et références, *date* avec icône pour les dates, *texte* sinon.
 - **Fenêtre de détail** au clic sur une carte :
-  - les champs sont ajoutés un à un depuis la configuration, avec leur **ordre** et leur **largeur** (demi-largeur ou pleine largeur) ;
+  - les champs sont ajoutés un à un depuis la configuration, avec leur **ordre** (glisser-déposer) et leur **largeur** (demi-largeur ou pleine largeur) ;
   - le titre est modifiable en haut de la fenêtre ;
   - tous les champs sont modifiables (sauf les colonnes formules).
 - **Recherche** dans les titres et champs des cartes.
