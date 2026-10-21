@@ -16,9 +16,8 @@ Un seul fichier (`index.html`), sans build ni dépendance à installer.
   - chaque champ s'affiche avec son **titre** (libellé de la colonne) au-dessus de sa valeur ;
   - la forme de la valeur suit le type du champ (aucun réglage) : *pastille* colorée pour les choix et références, *date* avec icône pour les dates, *texte* sinon.
 - **Fenêtre de détail** au clic sur une carte :
-  - les champs sont ajoutés un à un depuis la configuration, avec leur **ordre** (glisser-déposer) et leur **largeur** (demi-largeur ou pleine largeur) ;
-  - le titre est modifiable en haut de la fenêtre ;
-  - tous les champs sont modifiables (sauf les colonnes formules).
+  - le titre est modifiable en haut de la fenêtre, ainsi que tous les champs (sauf les colonnes formules) ;
+  - la **mise en page se règle directement dans la fenêtre** (bouton « Mise en page »), dans l'esprit des pages de détail d'Airtable : champs, **titres**, **sections** repliables et **séparateurs**, placés par glisser-déposer, avec une largeur au choix (demi-largeur ou pleine largeur) par champ.
 - **Recherche** dans les titres et champs des cartes.
 
 ## Types de colonnes pris en charge dans la fenêtre de détail
@@ -59,10 +58,22 @@ Cliquez sur **Configurer** en haut du widget (ou sur l'option « Open configurat
 
 1. **Colonnes du kanban** : choisissez la colonne Choice / Ref qui définit les colonnes.
 2. **Titre de la carte** : choisissez le champ utilisé comme titre.
-3. **Champs sous le titre** : ajoutez des champs un à un et ordonnez-les.
-4. **Champs de la fenêtre de détail** : ajoutez des champs un à un, ordonnez-les et choisissez pour chacun demi-largeur ou pleine largeur.
+3. **Champs sous le titre** : ajoutez des champs un à un et ordonnez-les par glisser-déposer.
 
 La configuration est enregistrée avec le widget dans le document Grist.
+
+### 4. Mettre en page la fenêtre de détail
+
+1. Cliquez sur une carte, puis sur **Mise en page** en haut de la fenêtre.
+2. Une barre d'éléments apparaît :
+   - **Titre**, **Section** et **Séparateur** ;
+   - les **champs** de la table qui ne sont pas encore placés.
+
+   Glissez un élément à l'endroit voulu dans la fenêtre, ou cliquez dessus pour l'ajouter à la fin.
+3. Chaque bloc a une poignée ⠿ pour le déplacer, un bouton pour sa largeur (champs) et un bouton **Retirer**. Le texte des titres et des sections se modifie directement.
+4. Cliquez sur **Terminer la mise en page**. En lecture, les sections se replient d'un clic.
+
+Pendant la mise en page, les valeurs déjà saisies mais pas encore enregistrées sont conservées. Une **section** regroupe tous les blocs qui la suivent jusqu'à la section suivante : pour sortir un bloc d'une section, déplacez-le avant celle-ci ; déplacer une section déplace aussi ses blocs.
 
 ## Tester hors de Grist
 
