@@ -67,7 +67,7 @@ La configuration est enregistrée avec le widget dans le document Grist.
 1. Cliquez sur une carte, puis sur **Mise en page** en haut de la fenêtre.
 2. Une barre d'éléments apparaît :
    - **Titre**, **Section** et **Séparateur** ;
-   - les **champs** de la table qui ne sont pas encore placés.
+   - les **champs** de la table qui ne sont pas encore placés, avec un champ **Rechercher un champ…** pour les filtrer par nom (sans tenir compte des accents ni des majuscules ; Échap efface la recherche).
 
    Glissez un élément à l'endroit voulu dans la fenêtre, ou cliquez dessus pour l'ajouter à la fin.
 3. Chaque bloc a une poignée ⠿ pour le déplacer, un bouton pour sa largeur (champs) et un bouton **Retirer**. Le texte des titres et des sections se modifie directement.
@@ -75,9 +75,19 @@ La configuration est enregistrée avec le widget dans le document Grist.
 
 Pendant la mise en page, les valeurs déjà saisies mais pas encore enregistrées sont conservées. Une **section** regroupe tous les blocs qui la suivent jusqu'à la section suivante : pour sortir un bloc d'une section, déplacez-le avant celle-ci ; déplacer une section déplace aussi ses blocs.
 
+## Qui peut configurer ?
+
+Le bouton **Configurer**, le panneau de configuration et le mode **Mise en page** de la fenêtre de détail ne sont visibles que par les **propriétaires du document**. Les autres utilisateurs voient le kanban et la fenêtre de détail, sans ces réglages.
+
+- Le rôle est lu auprès de Grist au chargement du widget (réponse de l'API `GET /docs/{id}`, champ `access`). Tant qu'il n'est pas connu, ou si la détection échoue, les réglages restent **masqués**.
+- Ce masquage ne concerne que l'interface du widget : il ne remplace pas les droits définis dans Grist. La modification des données reste régie par les droits d'accès du document.
+- **Dépannage** : si vous êtes propriétaire mais que les boutons n'apparaissent pas, ajoutez `?forceOwner=1` à l'URL du widget (par exemple `https://<compte>.github.io/grist-kanban-dsfr/?forceOwner=1`). Cela désactive la détection : les réglages sont alors visibles pour tous ceux qui ouvrent le document, donc à réserver aux documents dont tous les utilisateurs sont de confiance. Merci de signaler le cas, la détection doit fonctionner sans cela.
+
 ## Tester hors de Grist
 
 Ouvrez `index.html` directement dans un navigateur : le widget passe en **mode démo** avec des données fictives (le badge « Mode démo » s'affiche en bas à gauche). Pratique pour travailler le design sans document Grist.
+
+Pour simuler un autre rôle, ajoutez un paramètre à l'URL : `?role=owners`, `?role=editors`, `?role=viewers`, `?role=error` (échec de la détection), `?role=probe-owner` ou `?role=probe-other` (réponse sans champ `access`, détection par sonde de secours).
 
 ## Limites connues
 

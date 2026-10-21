@@ -93,10 +93,14 @@
   .kb-dropzone { border: 1px dashed var(--border-default-grey, #bbb); border-radius: 4px; color: var(--text-mention-grey, #888);
                  font-size: .8125rem; text-align: center; padding: .375rem; margin: .25rem 0 .75rem; }
   .kb-dropzone.drop-over, .kb-blk.drop-over { background: #ececfe; border-color: var(--text-action-high-blue-france, #000091); box-shadow: none; }
-  .kb-palette { display: flex; flex-wrap: wrap; align-items: center; gap: .375rem .5rem; padding: .5rem 1.5rem; max-height: 9rem; overflow-y: auto;
-                background: var(--background-alt-grey, #f6f6f6); border-bottom: 1px solid var(--border-default-grey, #ddd); }
-  .kb-pal-label { font-size: .75rem; font-weight: 700; color: var(--text-mention-grey, #666); margin-right: .125rem; }
-  .kb-pal-hint { flex-basis: 100%; font-size: .75rem; color: var(--text-mention-grey, #666); }
+  .kb-hidden { display: none !important; }
+  .kb-palette { padding: .5rem 1.5rem; background: var(--background-alt-grey, #f6f6f6); border-bottom: 1px solid var(--border-default-grey, #ddd); }
+  .kb-pal-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .375rem .5rem; margin-bottom: .375rem; }
+  .kb-pal-row:first-child { align-items: center; }
+  .kb-pal-search { flex: 1; min-width: 10rem; max-width: 16rem; margin-left: auto; }
+  .kb-pal-fields { display: flex; flex-wrap: wrap; gap: .375rem .5rem; flex: 1; max-height: 5.5rem; overflow-y: auto; align-items: center; }
+  .kb-pal-label { font-size: .75rem; font-weight: 700; color: var(--text-mention-grey, #666); margin-right: .125rem; line-height: 1.75rem; }
+  .kb-pal-hint { font-size: .75rem; color: var(--text-mention-grey, #666); }
   .kb-chip { border: 1px dashed var(--text-action-high-blue-france, #000091); background: #fff; border-radius: 1rem; padding: .125rem .75rem;
              font: inherit; font-size: .8125rem; cursor: grab; color: var(--text-default-grey, #3a3a3a); }
   .kb-chip:hover { background: #ececfe; }
@@ -113,7 +117,7 @@
   <div class="kb-spacer"></div>
   <input class="fr-input fr-input--sm" type="search" id="kbSearch" placeholder="Rechercher une carte…" aria-label="Rechercher">
   <button class="fr-btn fr-btn--tertiary fr-btn--sm fr-icon-refresh-line" data-act="refresh" title="Recharger la structure">Recharger</button>
-  <button class="fr-btn fr-btn--secondary fr-btn--sm fr-icon-settings-5-line fr-btn--icon-left" data-act="settings">Configurer</button>
+  <button class="fr-btn fr-btn--secondary fr-btn--sm fr-icon-settings-5-line fr-btn--icon-left kb-owner-only kb-hidden" data-act="settings">Configurer</button>
 </header>
 <main class="kb-board" id="kbBoard"></main>
 <div class="kb-overlay" id="kbOverlay"></div>
@@ -125,6 +129,8 @@
  * Mode démo : si le widget est ouvert hors de Grist, on simule l'API
  * ------------------------------------------------------------------ */
 const IN_GRIST = typeof grist !== 'undefined' && window.parent !== window;
+/* En mode démo, ?role=owners|editors|viewers|error|probe-owner|probe-other simule la réponse de l'API Grist pour tester la détection du rôle */
+const DEMO_ROLE = !IN_GRIST ? new URLSearchParams(location.search).get('role') : null;
 if (!IN_GRIST) {
   const mockRows = [
     { id: 1, Titre: 'Cadrer le besoin utilisateur', Statut: 'À faire', Responsable: 1, Echeance: 1793923200, Priorite: 'Haute', Tags: ['L', 'Discovery', 'UX'], Description: 'Atelier avec les agents.' },
@@ -144,7 +150,20 @@ if (!IN_GRIST) {
     Tags: { choices: ['Discovery', 'UX', 'Doc'] },
   };
   let cbs = null, opts = {};
+  if (DEMO_ROLE) {
+    const realFetch = window.fetch.bind(window);
+    const json = (status, body) => Promise.resolve(new Response(JSON.stringify(body || {}), { status }));
+    window.fetch = (u, ...a) => {
+      u = String(u);
+      if (!u.startsWith('https://mock.invalid/')) return realFetch(u, ...a);
+      if (DEMO_ROLE === 'error') return Promise.reject(new TypeError('Failed to fetch'));
+      const probe = u.includes('/usersForViewAs');
+      if (DEMO_ROLE.startsWith('probe-')) return probe ? json(DEMO_ROLE === 'probe-owner' ? 200 : 403) : json(200, {});   // pas de champ « access » : on bascule sur la sonde
+      return probe ? json(403) : json(200, { id: 'demo', name: 'Démo', access: DEMO_ROLE });
+    };
+  }
   window.grist = {
+    getAccessToken: async () => ({ baseUrl: 'https://mock.invalid/api/docs/demo', token: 'demo-token', ttlMsecs: 60000 }),
     ready() {},
     onOptions(cb) { cb(opts); this._o = cb; },
     setOptions(o) { opts = Object.assign(opts, o); this._o && this._o(opts); },
@@ -227,6 +246,32 @@ const toSec = (v) => {
   if (typeof v.valueOf === 'function' && typeof v.valueOf() === 'number') return v.valueOf() / 1000;
   return null;
 };
+/* ------------------------------------------------------------------ *
+ * Droits : la configuration et la mise en page sont réservées aux propriétaires du document.
+ * Le rôle vient de l'API REST de Grist (GET /docs/{id} → « access »). Tant qu'il est inconnu, ou si la
+ * détection échoue, l'utilisateur est considéré comme NON propriétaire (réglages masqués).
+ * Ce masquage ne concerne que l'interface : les droits réels restent ceux définis dans Grist.
+ * Dépannage : ajouter ?forceOwner=1 à l'URL du widget désactive la détection (réglages toujours visibles).
+ * ------------------------------------------------------------------ */
+let isOwner = false;
+const FORCE_OWNER = new URLSearchParams(location.search).get('forceOwner') === '1';
+async function detectOwner() {
+  if (FORCE_OWNER || (!IN_GRIST && !DEMO_ROLE)) return true;
+  try {
+    const t = await grist.getAccessToken({ readOnly: false });   // un jeton « lecture seule » ramènerait le rôle à « lecteur »
+    const q = '?auth=' + encodeURIComponent(t.token);
+    const res = await fetch(t.baseUrl + q);
+    if (res.ok) { const d = await res.json(); if (d && typeof d.access === 'string') return d.access === 'owners'; }
+    const probe = await fetch(t.baseUrl + '/usersForViewAs' + q);   // sonde de secours : cette adresse n'est accessible qu'aux propriétaires
+    return probe.ok;
+  } catch (e) { return false; }
+}
+function applyRole() {
+  document.querySelectorAll('.kb-owner-only').forEach((n) => n.classList.toggle('kb-hidden', !isOwner));
+  if (!isOwner) { $('#kbDrawer').classList.remove('open'); editLayout = false; }
+  renderBoard();
+  if (modalId !== null) renderModal();
+}
 function toast(msg, err) {
   const t = $('#kbToast'); t.textContent = msg; t.className = 'kb-toast' + (err ? ' err' : ''); t.style.display = 'block';
   clearTimeout(toast._t); toast._t = setTimeout(() => (t.style.display = 'none'), err ? 5000 : 2200);
@@ -373,8 +418,10 @@ function renderBoard() {
   $('#kbTitle').textContent = meta.tableId ? `Kanban · ${meta.tableId}` : 'Kanban';
   if (!meta.loaded) { board.innerHTML = '<div class="kb-empty">Chargement…</div>'; return; }
   if (!col(cfg.groupCol)) {
-    board.innerHTML = `<div class="kb-empty"><p>Choisissez la colonne (liste de choix ou référence) qui définit les colonnes du kanban.</p>
-      <button class="fr-btn" data-act="settings">Configurer</button></div>`;
+    board.innerHTML = isOwner
+      ? `<div class="kb-empty"><p>Choisissez la colonne (liste de choix ou référence) qui définit les colonnes du kanban.</p>
+      <button class="fr-btn" data-act="settings">Configurer</button></div>`
+      : `<div class="kb-empty"><p>Ce kanban n’est pas encore configuré.</p><p class="fr-hint-text">Seuls les propriétaires du document peuvent le configurer.</p></div>`;
     return;
   }
   const filtered = records.filter(matches);
@@ -561,13 +608,39 @@ function bodyHtml(r) {
 function paletteHtml() {
   const used = new Set(blocks().filter((b) => !b.type).map((b) => b.col));
   const free = meta.cols.filter((c) => c.colId !== cfg.titleCol && !used.has(c.colId));
-  const chip = (spec, label, cls) => `<button type="button" class="kb-chip ${cls || ''}" draggable="true" data-act="addBlk" data-spec="${esc(JSON.stringify(spec))}">${label}</button>`;
+  const chip = (spec, label, cls, extra) => `<button type="button" class="kb-chip ${cls || ''}" draggable="true" data-act="addBlk" data-spec="${esc(JSON.stringify(spec))}" ${extra || ''}>${label}</button>`;
+  const q = norm(palSearch);
+  const fieldChip = (c) => chip({ col: c.colId }, esc(c.label), q && !norm(c.label + ' ' + c.colId).includes(q) ? 'kb-hidden' : '',
+    `data-find="${esc(norm(c.label + ' ' + c.colId))}"`);
+  const shown = free.filter((c) => !q || norm(c.label + ' ' + c.colId).includes(q)).length;
   return `<div class="kb-palette">
-    <span class="kb-pal-label">Éléments :</span>
-    ${chip({ type: 'heading' }, 'Titre', 'kb-chip-el')}${chip({ type: 'section' }, 'Section', 'kb-chip-el')}${chip({ type: 'divider' }, 'Séparateur', 'kb-chip-el')}
-    <span class="kb-pal-label">Champs :</span>
-    ${free.length ? free.map((c) => chip({ col: c.colId }, esc(c.label))).join('') : '<span class="fr-hint-text">Tous les champs sont placés.</span>'}
-    <span class="kb-pal-hint">Glissez un élément dans la fenêtre, ou cliquez pour l’ajouter à la fin.</span></div>`;
+    <div class="kb-pal-row">
+      <span class="kb-pal-label">Éléments :</span>
+      ${chip({ type: 'heading' }, 'Titre', 'kb-chip-el')}${chip({ type: 'section' }, 'Section', 'kb-chip-el')}${chip({ type: 'divider' }, 'Séparateur', 'kb-chip-el')}
+      <input type="search" class="fr-input fr-input--sm kb-pal-search" data-blk="search" value="${esc(palSearch)}" placeholder="Rechercher un champ…" aria-label="Rechercher un champ">
+    </div>
+    <div class="kb-pal-row">
+      <span class="kb-pal-label">Champs :</span>
+      <div class="kb-pal-fields">
+        ${free.map(fieldChip).join('')}
+        <span class="fr-hint-text kb-pal-none ${free.length && shown ? 'kb-hidden' : ''}">${free.length ? 'Aucun champ ne correspond.' : 'Tous les champs sont placés.'}</span>
+      </div>
+    </div>
+    <div class="kb-pal-hint">Glissez un élément dans la fenêtre, ou cliquez pour l’ajouter à la fin.</div></div>`;
+}
+/* recherche : sans accent ni casse */
+const norm = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+let palSearch = '';
+function filterPalette() {
+  const q = norm(palSearch);
+  let n = 0;
+  document.querySelectorAll('.kb-pal-fields .kb-chip').forEach((c) => {
+    const ok = !q || c.dataset.find.includes(q);
+    c.classList.toggle('kb-hidden', !ok);
+    if (ok) n++;
+  });
+  const none = document.querySelector('.kb-pal-none');
+  if (none) none.classList.toggle('kb-hidden', n > 0 || !document.querySelector('.kb-pal-fields .kb-chip'));
 }
 
 /* --- fenêtre ------------------------------------------------------------ */
@@ -587,7 +660,7 @@ function renderModal() {
   const body = bodyHtml(r);
   ov.innerHTML = `<div class="kb-modal ${editLayout ? 'kb-editing' : ''}" role="dialog" aria-modal="true" aria-labelledby="kbModalTitle">
     <div class="kb-modal-head">${head}
-      ${editLayout ? '' : '<button class="fr-btn fr-btn--tertiary fr-btn--sm fr-icon-edit-line fr-btn--icon-left" data-act="editLayout">Mise en page</button>'}
+      ${editLayout || !isOwner ? '' : '<button class="fr-btn fr-btn--tertiary fr-btn--sm fr-icon-edit-line fr-btn--icon-left" data-act="editLayout">Mise en page</button>'}
       <button class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm fr-icon-close-line" data-act="close" title="Fermer">Fermer</button></div>
     ${editLayout ? paletteHtml() : ''}
     <div class="kb-modal-body">${body}</div>
@@ -601,7 +674,7 @@ function renderModal() {
 }
 function openModal(id) {
   if (!records.some((x) => x.id === id)) return;
-  modalId = id; editLayout = false; draft = null;
+  modalId = id; editLayout = false; draft = null; palSearch = '';
   renderModal();
 }
 function closeModal() { $('#kbOverlay').classList.remove('open'); modalId = null; getters = []; editLayout = false; draft = null; mdrag = null; }
@@ -621,6 +694,7 @@ async function saveModal() {
 
 /* --- modifications de la mise en page --------------------------------- */
 function enterLayout() {
+  if (!isOwner) return;
   draft = {};
   getters.forEach(([c, get]) => { if (!c.readOnly) { try { draft[c.colId] = get(); } catch (e) {} } });
   editLayout = true; renderModal();
@@ -682,6 +756,7 @@ function applyDrop(m) {
    pourrait écraser une modification plus récente faite entre-temps). */
 const sentCfg = [];
 function saveCfg() {
+  if (!isOwner) return;
   sentCfg.push(JSON.stringify(cfg)); if (sentCfg.length > 12) sentCfg.shift();
   grist.setOptions({ cfg });
 }
@@ -711,7 +786,7 @@ function renderDrawer() {
     <section><h3>Fenêtre de détail</h3>
       <p class="fr-hint-text">La mise en page (champs, titres, sections, séparateurs, largeurs) se règle directement dans la fenêtre : cliquez sur une carte, puis sur « Mise en page ».</p></section>`;
 }
-function openSettings() { renderDrawer(); $('#kbDrawer').classList.add('open'); }
+function openSettings() { if (!isOwner) return; renderDrawer(); $('#kbDrawer').classList.add('open'); }
 
 /* ------------------------------------------------------------------ *
  * Événements
@@ -755,7 +830,15 @@ document.addEventListener('change', (e) => {
   persist();
 });
 $('#kbSearch').addEventListener('input', (e) => { search = e.target.value.trim().toLowerCase(); renderBoard(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeModal(); $('#kbDrawer').classList.remove('open'); } });
+document.addEventListener('input', (e) => {             // recherche d'un champ dans la barre d'éléments (pas de nouveau rendu : on garde le focus)
+  if (e.target.dataset && e.target.dataset.blk === 'search') { palSearch = e.target.value; filterPalette(); }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const t = e.target;
+  if (t && t.dataset && t.dataset.blk === 'search' && t.value) { t.value = ''; palSearch = ''; filterPalette(); return; }   // Échap efface d'abord la recherche
+  closeModal(); $('#kbDrawer').classList.remove('open');
+});
 
 /* Réordonnancement des champs (panneau de configuration) : on ne peut saisir une ligne que par sa poignée */
 let rdrag = null;   // { list: 'card' | 'modal', i, target?: { i, after } }
@@ -875,6 +958,7 @@ function normRecords() {
 }
 
 grist.ready({ requiredAccess: 'full', onEditOptions: openSettings });
+detectOwner().then((v) => { isOwner = v; applyRole(); });
 grist.onOptions((o) => {
   const c = (o && o.cfg) || {};
   if (sentCfg.includes(JSON.stringify(c))) return;       // écho de notre propre enregistrement
