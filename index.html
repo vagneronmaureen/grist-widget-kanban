@@ -38,6 +38,8 @@
   .kb-f { display: block; }
   .kb-f-label { color: var(--text-mention-grey, #666); font-size: .75rem; line-height: 1.25rem; }
   .kb-f-val { line-height: 1.5rem; }
+  .kb-link { word-break: break-all; }
+  .kb-num { text-align: right; }
   .kb-badges { display: flex; flex-wrap: wrap; gap: .25rem; }
   .kb-badge { display: inline-block; border-radius: .25rem; padding: 0 .5rem; font-size: .75rem; font-weight: 700;
               line-height: 1.5rem; text-transform: uppercase; letter-spacing: .02em; }
@@ -133,7 +135,7 @@ const IN_GRIST = typeof grist !== 'undefined' && window.parent !== window;
 const DEMO_ROLE = !IN_GRIST ? new URLSearchParams(location.search).get('role') : null;
 if (!IN_GRIST) {
   const mockRows = [
-    { id: 1, Titre: 'Cadrer le besoin utilisateur', Statut: 'À faire', Responsable: 1, Echeance: 1793923200, Priorite: 'Haute', Tags: ['L', 'Discovery', 'UX'], Description: 'Atelier avec les agents.' },
+    { id: 1, Titre: 'Cadrer le besoin utilisateur', Statut: 'À faire', Responsable: 1, Echeance: 1793923200, Priorite: 'Haute', Tags: ['L', 'Discovery', 'UX'], Description: 'Atelier avec les agents.', Avancement: 0.35, Budget: 12500.5, Solde: -1234.56, Valide: true, Actif: false, Lien: 'Spécifications https://example.org/spec', Cree: ['D', 1793923200, 'Pacific/Tahiti'] },
     { id: 2, Titre: 'Rédiger la note de cadrage', Statut: 'En cours', Responsable: 2, Echeance: 1794528000, Priorite: 'Moyenne', Tags: ['L', 'Doc'], Description: '' },
     { id: 3, Titre: 'Prototype du tableau de bord', Statut: 'En cours', Responsable: 1, Echeance: 1795132800, Priorite: 'Haute', Tags: ['L', 'UX'], Description: 'Version Grist.' },
     { id: 4, Titre: 'Valider avec la DNUM', Statut: 'Terminé', Responsable: 3, Echeance: 1792713600, Priorite: 'Basse', Tags: ['L'], Description: '' },
@@ -143,11 +145,18 @@ if (!IN_GRIST) {
   const tcols = [
     ['Titre', 'Text'], ['Statut', 'Choice'], ['Responsable', 'Ref:Personnes'], ['Echeance', 'Date'],
     ['Priorite', 'Choice'], ['Tags', 'ChoiceList'], ['Description', 'Text'],
+    ['Avancement', 'Numeric'], ['Budget', 'Numeric'], ['Solde', 'Numeric'], ['Valide', 'Bool'], ['Actif', 'Bool'], ['Lien', 'Text'], ['Cree', 'DateTime:Pacific/Tahiti'],
   ];
   const wopts = {
     Statut: { choices: ['À faire', 'En cours', 'Terminé'], choiceOptions: { 'En cours': { fillColor: '#FEECC2', textColor: '#000' } } },
     Priorite: { choices: ['Haute', 'Moyenne', 'Basse'], choiceOptions: { Haute: { fillColor: '#FEE9E9', textColor: '#CE0500' } } },
     Tags: { choices: ['Discovery', 'UX', 'Doc'] },
+    Avancement: { numMode: 'percent', decimals: 0 },
+    Budget: { numMode: 'currency', currency: 'EUR' },
+    Solde: { numMode: 'decimal', decimals: 1, numSign: 'parens' },
+    Actif: { widget: 'Switch' },
+    Lien: { widget: 'HyperLink' },
+    Cree: { dateFormat: 'DD/MM/YYYY', timeFormat: 'HH:mm' },
   };
   let cbs = null, opts = {};
   if (DEMO_ROLE) {
@@ -157,6 +166,7 @@ if (!IN_GRIST) {
       u = String(u);
       if (!u.startsWith('https://mock.invalid/')) return realFetch(u, ...a);
       if (DEMO_ROLE === 'error') return Promise.reject(new TypeError('Failed to fetch'));
+      if (DEMO_ROLE === 'acl-owner') return json(404);          // l'API REST ne répond pas : seule la sonde ACL permet de conclure
       const probe = u.includes('/usersForViewAs');
       if (DEMO_ROLE.startsWith('probe-')) return probe ? json(DEMO_ROLE === 'probe-owner' ? 200 : 403) : json(200, {});   // pas de champ « access » : on bascule sur la sonde
       return probe ? json(403) : json(200, { id: 'demo', name: 'Démo', access: DEMO_ROLE });
@@ -179,7 +189,9 @@ if (!IN_GRIST) {
       async fetchTable(name) {
         if (name === '_grist_Tables') return { id: [1, 2], tableId: ['Tickets', 'Personnes'] };
         if (name === 'Tickets') { const o = { id: mockRows.map((r) => r.id) }; tcols.forEach(([c]) => { o[c] = mockRows.map((r) => r[c]); }); return o; }
+        if (name === 'OwnerAccess') { if (DEMO_ROLE === 'acl-owner') return { id: [1] }; throw new Error('Access denied'); }   // sonde ACL simulée
         if (name === 'Personnes') return people;
+        if (name === '_grist_DocInfo') return { id: [1], timezone: ['Europe/Paris'], documentSettings: [JSON.stringify({ locale: 'fr-FR', currency: 'EUR' })] };
         const ids = [], out = { id: [], parentId: [], parentPos: [], colId: [], label: [], type: [], widgetOptions: [], visibleCol: [], isFormula: [] };
         tcols.forEach(([c, t], i) => {
           out.id.push(10 + i); out.parentId.push(1); out.parentPos.push(i); out.colId.push(c); out.label.push(c === 'Priorite' ? 'Priorité' : c === 'Echeance' ? 'Échéance' : c);
@@ -255,16 +267,50 @@ const toSec = (v) => {
  * ------------------------------------------------------------------ */
 let isOwner = false;
 const FORCE_OWNER = new URLSearchParams(location.search).get('forceOwner') === '1';
-async function detectOwner() {
-  if (FORCE_OWNER || (!IN_GRIST && !DEMO_ROLE)) return true;
+/* Méthodes essayées dans l'ordre (comme dans le widget « Fiche Produit »), la première qui répond l'emporte :
+ *  1. grist.getUserSession(), si disponible        2. API REST /api/docs/{docId} (docId lu dans l'adresse de la page Grist)
+ *  3. API REST via un jeton d'accès Grist           4. sonde ACL : lecture de la table « OwnerAccess »
+ *     (table d'une ligne avec la règle « user.Access != OWNER → refuser la lecture » : lisible par les owners seulement) */
+async function accessViaRest() {
+  const docId = [document.referrer, location.href].map((s) => {
+    const m = s && (s.match(/\/o\/[^/]+\/([a-zA-Z0-9_-]{6,})(?:\/|$)/) || s.match(/\/doc\/([a-zA-Z0-9_-]{6,})/));
+    return m ? m[1] : null;
+  }).find(Boolean);
+  let origin = null; try { origin = new URL(document.referrer).origin; } catch (e) {}
+  if (!docId || !origin) return null;
+  try {
+    const r = await fetch(`${origin}/api/docs/${docId}`, { credentials: 'include' });
+    if (r.ok) { const d = await r.json(); return d && typeof d.access === 'string' ? d.access : null; }
+  } catch (e) {}
+  return null;
+}
+async function accessViaToken() {
   try {
     const t = await grist.getAccessToken({ readOnly: false });   // un jeton « lecture seule » ramènerait le rôle à « lecteur »
     const q = '?auth=' + encodeURIComponent(t.token);
     const res = await fetch(t.baseUrl + q);
-    if (res.ok) { const d = await res.json(); if (d && typeof d.access === 'string') return d.access === 'owners'; }
-    const probe = await fetch(t.baseUrl + '/usersForViewAs' + q);   // sonde de secours : cette adresse n'est accessible qu'aux propriétaires
-    return probe.ok;
-  } catch (e) { return false; }
+    if (res.ok) { const d = await res.json(); if (d && typeof d.access === 'string') return d.access; }
+    const probe = await fetch(t.baseUrl + '/usersForViewAs' + q);   // adresse accessible aux seuls propriétaires
+    if (probe.ok) return 'owners';
+  } catch (e) {}
+  return null;
+}
+async function accessViaProbe() {
+  try { await grist.docApi.fetchTable('OwnerAccess'); return 'owners'; }
+  catch (e) {
+    if (/not found|no such|unknown table|keyerror|does not exist/i.test(String((e && e.message) || e))) return null;   // la table n'existe pas : on ne peut pas conclure
+    return 'non-owner';
+  }
+}
+async function detectOwner() {
+  if (FORCE_OWNER || (!IN_GRIST && !DEMO_ROLE)) return true;
+  let acc = null;
+  try { if (typeof grist.getUserSession === 'function') { const s = await grist.getUserSession(); acc = s && s.access ? s.access : null; } } catch (e) {}
+  if (!acc) acc = await accessViaRest();
+  if (!acc) acc = await accessViaToken();
+  if (!acc) acc = await accessViaProbe();
+  console.log('[Kanban] accès au document =', acc);
+  return acc === 'owners';       // inconnu = non propriétaire (interface de configuration masquée)
 }
 function applyRole() {
   document.querySelectorAll('.kb-owner-only').forEach((n) => n.classList.toggle('kb-hidden', !isOwner));
@@ -283,21 +329,30 @@ function hash(s) { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCod
  * ------------------------------------------------------------------ */
 async function loadMeta() {
   const tid = await grist.getTable().getTableId();
-  const [T, C] = await Promise.all([grist.docApi.fetchTable('_grist_Tables'), grist.docApi.fetchTable('_grist_Tables_column')]);
+  const [T, C, DI] = await Promise.all([
+    grist.docApi.fetchTable('_grist_Tables'), grist.docApi.fetchTable('_grist_Tables_column'),
+    grist.docApi.fetchTable('_grist_DocInfo').catch(() => null),     // langue, devise et fuseau du document
+  ]);
+  docSettings = readDocSettings(DI);
   const tRef = T.id[T.tableId.indexOf(tid)];
-  const idToColId = {};
-  C.id.forEach((id, i) => (idToColId[id] = C.colId[i]));
+  const idToColId = {}, metaOfRow = {};
+  C.id.forEach((id, i) => {
+    idToColId[id] = C.colId[i];
+    const type = C.type[i] || 'Any';
+    const [base, arg] = type.split(':');
+    let o = {}; try { o = JSON.parse(C.widgetOptions[i] || '{}') || {}; } catch (e) {}
+    metaOfRow[id] = { base, type, tz: base === 'DateTime' ? (arg || null) : null, opts: o };
+  });
   const cols = [];
   C.id.forEach((id, i) => {
     if (C.parentId[i] !== tRef || HIDE.test(C.colId[i])) return;
-    const type = C.type[i] || 'Any';
-    const [base, arg] = type.split(':');
-    let o = {}; try { o = JSON.parse(C.widgetOptions[i] || '{}'); } catch (e) {}
+    const m = metaOfRow[id];
     cols.push({
-      colId: C.colId[i], label: C.label[i] || C.colId[i], type, base, pos: C.parentPos ? C.parentPos[i] : i,
-      refTable: base === 'Ref' || base === 'RefList' ? arg : null,
+      colId: C.colId[i], label: C.label[i] || C.colId[i], type: m.type, base: m.base, tz: m.tz, pos: C.parentPos ? C.parentPos[i] : i,
+      refTable: m.base === 'Ref' || m.base === 'RefList' ? (m.type.split(':')[1] || null) : null,
       visCol: C.visibleCol && C.visibleCol[i] ? idToColId[C.visibleCol[i]] : null,
-      opts: o, readOnly: !!C.isFormula[i],
+      visMeta: C.visibleCol && C.visibleCol[i] ? metaOfRow[C.visibleCol[i]] : null,   // format de la colonne affichée d'une référence
+      opts: m.opts, readOnly: !!C.isFormula[i],
     });
   });
   cols.sort((a, b) => a.pos - b.pos);
@@ -307,7 +362,8 @@ async function loadMeta() {
     try {
       const d = await grist.docApi.fetchTable(c.refTable);
       const lab = c.visCol && d[c.visCol] ? d[c.visCol] : d.id;
-      const rows = d.id.map((id, i) => ({ id, label: String(lab[i] ?? '') }));
+      const lf = c.visMeta && d[c.visCol] ? makeFmt(c.visMeta) : null;      // la référence s'affiche avec le format de sa colonne
+      const rows = d.id.map((id, i) => ({ id, label: String(lf ? lf(lab[i]) : (lab[i] ?? '')) }));
       refs[c.colId] = { rows, map: Object.fromEntries(rows.map((r) => [r.id, r.label])) };
     } catch (e) { refs[c.colId] = { rows: [], map: {} }; }
   }));
@@ -324,20 +380,163 @@ async function loadMeta() {
 /* ------------------------------------------------------------------ *
  * Valeurs & affichage
  * ------------------------------------------------------------------ */
-function fmtDate(raw, withTime) {
-  const sec = toSec(raw);
-  if (sec == null) return '';
-  const d = new Date(sec * 1000);
-  return withTime ? d.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : d.toLocaleDateString('fr-FR', { timeZone: 'UTC' });
+/* --- Formats des colonnes ------------------------------------------------
+ * On reprend les réglages d'affichage définis dans Grist :
+ *   nombres : mode (décimal avec séparateur de milliers, %, devise, scientifique), devise, décimales min/max, négatifs entre parenthèses
+ *   dates / heures : format (moment.js) et fuseau horaire
+ *   cases à cocher : case, interrupteur ou texte        liens : colonne texte de type « lien »
+ * La langue, la devise et le fuseau par défaut sont ceux du document (comme dans Grist). */
+let docSettings = { locale: 'en-US', currency: 'USD', timezone: 'UTC' };
+function readDocSettings(DI) {
+  let s = {};
+  try { s = JSON.parse((DI && DI.documentSettings && DI.documentSettings[0]) || '{}') || {}; } catch (e) {}
+  let locale = s.locale || 'en-US';
+  try { new Intl.NumberFormat(locale); } catch (e) { locale = 'en-US'; }
+  let timezone = (DI && DI.timezone && DI.timezone[0]) || 'UTC';
+  try { new Intl.DateTimeFormat('en-US', { timeZone: timezone }); } catch (e) { timezone = 'UTC'; }
+  return { locale, currency: s.currency || 'USD', timezone };
 }
+const pad = (n, w = 2) => String(n).padStart(w, '0');
+
+/* nombres */
+function numSeparators() {
+  const parts = new Intl.NumberFormat(docSettings.locale).formatToParts(1234567.5);
+  const get = (t, d) => (parts.find((p) => p.type === t) || { value: d }).value;
+  return { group: get('group', ''), decimal: get('decimal', '.') };
+}
+function makeNumFmt(m) {
+  const o = m.opts || {}, mode = o.numMode, loc = docSettings.locale;
+  const clamp = (n) => Math.max(0, Math.min(20, Math.round(n)));
+  const dec = typeof o.decimals === 'number' ? clamp(o.decimals) : undefined;
+  const mx = typeof o.maxDecimals === 'number' ? clamp(o.maxDecimals) : undefined;
+  let nf;
+  try {
+    const opt = {};
+    if (mode === 'currency') {
+      opt.style = 'currency'; opt.currency = o.currency || docSettings.currency;
+      const dd = new Intl.NumberFormat(loc, { style: 'currency', currency: opt.currency }).resolvedOptions().maximumFractionDigits;
+      opt.minimumFractionDigits = dec !== undefined ? dec : Math.min(dd, mx !== undefined ? mx : dd);
+      opt.maximumFractionDigits = Math.max(mx !== undefined ? mx : Math.max(dd, opt.minimumFractionDigits), opt.minimumFractionDigits);
+    } else {
+      if (mode === 'percent') opt.style = 'percent';
+      else if (mode === 'scientific') opt.notation = 'scientific';
+      else opt.useGrouping = mode === 'decimal';          // sans réglage : pas de séparateur de milliers, comme dans Grist
+      opt.minimumFractionDigits = dec !== undefined ? dec : 0;
+      opt.maximumFractionDigits = Math.max(mx !== undefined ? mx : 10, opt.minimumFractionDigits);
+    }
+    nf = new Intl.NumberFormat(loc, opt);
+  } catch (e) { nf = new Intl.NumberFormat(loc, { maximumFractionDigits: 10, useGrouping: false }); }
+  const parens = o.numSign === 'parens';
+  return (v) => {
+    if (typeof v !== 'number' || !isFinite(v)) return v == null || v === '' || typeof v === 'object' ? '' : String(v);   // texte « alternatif » conservé tel quel
+    const neg = parens && v < 0;
+    const s = nf.format(neg ? -v : v);
+    return neg ? '(' + s + ')' : s;
+  };
+}
+/* édition d'un nombre dans la popup : texte formaté au repos, nombre brut pendant la saisie */
+function numEdit(c) {
+  const fmt = fmtOf(c), percent = (c.opts || {}).numMode === 'percent', { group, decimal } = numSeparators();
+  const plain = (v) => String(+(percent ? v * 100 : v).toPrecision(12)).replace('.', decimal);
+  const parse = (text) => {
+    let t = String(text).replace(/[\s  ]/g, '');
+    const direct = t.replace(decimal, '.');
+    if (/^[-+]?(\d+\.?\d*|\.\d+)e[-+]?\d+$/i.test(direct)) return Number(direct) / (percent ? 100 : 1);   // notation scientifique
+    t = t.replace(/[^0-9+\-.,()]/g, '');                      // retire %, symboles et codes de devise
+    const neg = /^\(.*\)$/.test(t) || t.startsWith('-');
+    t = t.replace(/[()+\-]/g, '');
+    const other = decimal === ',' ? '.' : ',';
+    if (!t.includes(decimal) && t.split(other).length === 2 && t.split(other)[1].length !== 3) t = t.replace(other, decimal);   // « 12.5 » saisi avec une locale à virgule
+    if (group) t = t.split(group).join('');
+    t = t.replace(decimal, '.');
+    const n = t === '' ? NaN : Number(t);
+    return (neg ? -n : n) / (percent ? 100 : 1);
+  };
+  return { fmt, plain, parse };
+}
+
+/* dates et heures (formats moment.js : YYYY, MM, DD, HH, mm, A, z…) */
+const dtfCache = {}, namesCache = {};
+function tzParts(sec, tz) {
+  const dtf = dtfCache[tz] || (dtfCache[tz] = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }));
+  const p = {};
+  dtf.formatToParts(new Date(sec * 1000)).forEach((x) => { if (x.type !== 'literal') p[x.type] = parseInt(x.value, 10); });
+  if (p.hour === 24) p.hour = 0;
+  return p;
+}
+const tzOffsetMin = (sec, tz) => { const p = tzParts(sec, tz); return (Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) / 1000 - Math.floor(sec)) / 60; };
+/* « 2026-10-21T14:30 » exprimé dans le fuseau tz → secondes UTC */
+function localToSec(s, tz) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(s); if (!m) return null;
+  const guess = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) / 1000;
+  try { let sec = guess - tzOffsetMin(guess, tz) * 60; sec = guess - tzOffsetMin(sec, tz) * 60; return sec; } catch (e) { return guess; }
+}
+function names() {
+  const loc = docSettings.locale;
+  if (namesCache[loc]) return namesCache[loc];
+  const f = (opt, d) => new Intl.DateTimeFormat(loc, { timeZone: 'UTC', ...opt }).format(d);
+  const mo = (w) => Array.from({ length: 12 }, (_, i) => f({ month: w }, new Date(Date.UTC(2000, i, 15))));
+  const dy = (w) => Array.from({ length: 7 }, (_, i) => f({ weekday: w }, new Date(Date.UTC(2000, 0, 2 + i))));   // 2 janv. 2000 = dimanche
+  return (namesCache[loc] = { monthLong: mo('long'), monthShort: mo('short'), dayLong: dy('long'), dayShort: dy('short') });
+}
+function formatMoment(sec, pattern, tz) {
+  let p;
+  try { p = tzParts(sec, tz); } catch (e) { tz = 'UTC'; p = tzParts(sec, 'UTC'); }
+  const nm = names(), lang = docSettings.locale.slice(0, 2);
+  const dow = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay();
+  const h12 = p.hour % 12 === 0 ? 12 : p.hour % 12;
+  const ord = (n) => {
+    if (lang === 'en') { const s = n % 100; return n + ((s >= 11 && s <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')); }
+    return lang === 'fr' && n === 1 ? '1er' : String(n);
+  };
+  const off = () => tzOffsetMin(sec, tz);
+  const offStr = (sep) => { const o = off(), a = Math.abs(o); return (o < 0 ? '-' : '+') + pad(Math.floor(a / 60)) + sep + pad(a % 60); };
+  const tok = {
+    YYYY: () => pad(p.year, 4), YY: () => pad(p.year % 100), MMMM: () => nm.monthLong[p.month - 1], MMM: () => nm.monthShort[p.month - 1],
+    MM: () => pad(p.month), M: () => String(p.month), Do: () => ord(p.day), DD: () => pad(p.day), D: () => String(p.day),
+    dddd: () => nm.dayLong[dow], ddd: () => nm.dayShort[dow], dd: () => nm.dayShort[dow].slice(0, 2), d: () => String(dow),
+    HH: () => pad(p.hour), H: () => String(p.hour), hh: () => pad(h12), h: () => String(h12), mm: () => pad(p.minute), m: () => String(p.minute),
+    ss: () => pad(p.second), s: () => String(p.second), A: () => (p.hour < 12 ? 'AM' : 'PM'), a: () => (p.hour < 12 ? 'am' : 'pm'),
+    ZZ: () => offStr(''), Z: () => offStr(':'),
+    z: () => { const x = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' }).formatToParts(new Date(sec * 1000)).find((y) => y.type === 'timeZoneName'); return x ? x.value : ''; },
+  };
+  return pattern.replace(/\[([^\]]*)\]|YYYY|YY|MMMM|MMM|MM|M|Do|DD|D|dddd|ddd|dd|d|HH|H|hh|h|mm|m|ss|s|A|a|ZZ|Z|z/g, (t, lit) => (lit !== undefined ? lit : tok[t]()));
+}
+function makeDateFmt(m) {
+  const o = m.opts || {}, isDT = m.base === 'DateTime';
+  const df = o.dateFormat === undefined ? 'YYYY-MM-DD' : o.dateFormat;
+  const tf = o.timeFormat === undefined ? 'h:mma' : o.timeFormat;
+  const pattern = isDT ? [df, tf].filter(Boolean).join(' ') : df;
+  const tz = isDT ? (m.tz || docSettings.timezone) : 'UTC';
+  return (raw) => {
+    if (raw == null || raw === '') return '';
+    if (typeof raw === 'string') return raw;                  // texte « alternatif » (date invalide) conservé tel quel
+    const sec = toSec(raw);
+    return sec == null ? '' : formatMoment(sec, pattern, tz);
+  };
+}
+
+/* cases à cocher */
+const boolWidget = (m) => (m.opts && m.opts.widget) || 'CheckBox';
+function makeBoolFmt(m) { const w = boolWidget(m); return (v) => (w === 'TextBox' ? (v ? 'true' : 'false') : (v ? 'Oui' : 'Non')); }
+
+function makeFmt(m) {
+  switch (m.base) {
+    case 'Numeric': case 'Int': return makeNumFmt(m);
+    case 'Date': case 'DateTime': return makeDateFmt(m);
+    case 'Bool': return makeBoolFmt(m);
+    default: return (v) => (v == null || v === '' || typeof v === 'object' ? '' : String(v));
+  }
+}
+const fmtOf = (c) => c.fmt || (c.fmt = makeFmt(c));
+
 function valueList(c, raw) {
   switch (c.base) {
     case 'Ref': case 'RefList': return asList(raw).map((id) => (refs[c.colId]?.map[id] ?? String(id)));
     case 'Choice': case 'ChoiceList': return asList(raw).map(String);
-    case 'Date': return [fmtDate(raw)].filter(Boolean);
-    case 'DateTime': return [fmtDate(raw, true)].filter(Boolean);
-    case 'Bool': return [raw ? 'Oui' : 'Non'];
-    case 'Numeric': case 'Int': return raw == null || raw === '' ? [] : [Number(raw).toLocaleString('fr-FR')];
+    case 'Date': case 'DateTime': case 'Numeric': case 'Int': { const s = fmtOf(c)(raw); return s === '' ? [] : [s]; }
+    case 'Bool': return [fmtOf(c)(raw)];
     default: return raw == null || raw === '' ? [] : [typeof raw === 'object' ? '' : String(raw)];
   }
 }
@@ -386,8 +585,16 @@ function matches(r) {
 /* La forme d'affichage dépend du type du champ (pas de réglage) */
 function formOf(c) {
   if (c.base === 'Date' || c.base === 'DateTime') return 'date';
+  if (c.base === 'Bool') return 'bool';
+  if (c.base === 'Text' && c.opts && c.opts.widget === 'HyperLink') return 'lien';
   if (['Choice', 'ChoiceList', 'Ref', 'RefList'].includes(c.base)) return 'pastille';
   return 'texte';
+}
+/* Lien : « https://… » ou « Libellé https://… » (comme dans Grist) ; seuls http, https et mailto sont cliquables */
+function linkHtml(s) {
+  const m = /^(.*?)\s*((?:https?:\/\/|mailto:)\S+)$/i.exec(String(s).trim());
+  if (!m) return esc(s);
+  return `<a href="${esc(m[2])}" target="_blank" rel="noopener noreferrer" class="kb-link">${esc(m[1] || m[2])}</a>`;
 }
 /* Chaque champ s'affiche avec son titre (libellé de la colonne) au-dessus de sa valeur */
 function fieldHtml(f, r) {
@@ -398,6 +605,10 @@ function fieldHtml(f, r) {
   let body;
   if (form === 'pastille') {
     body = `<div class="kb-badges">${vals.map((v) => { const k = badgeColor(c, v); return `<span class="kb-badge" style="background:${k.bg};color:${k.fg}">${esc(v)}</span>`; }).join('')}</div>`;
+  } else if (form === 'bool') {
+    body = `<div class="kb-f-val">${boolWidget(c) === 'TextBox' ? '' : `<span aria-hidden="true">${r[f.col] ? '☑' : '☐'}</span> `}${esc(vals[0])}</div>`;
+  } else if (form === 'lien') {
+    body = `<div class="kb-f-val">${linkHtml(vals[0])}</div>`;
   } else if (form === 'date') {
     body = `<div class="kb-f-val"><span class="fr-icon-calendar-line fr-icon--sm" aria-hidden="true"></span> ${esc(vals.join(', '))}</div>`;
   } else {
@@ -497,12 +708,27 @@ function editorHtml(c, raw, i, full, lock) {
     case 'Text':
       getters.push([c, () => $('#' + id).value]);
       return wrap(`<textarea class="fr-input" id="${id}" rows="3" ${ro ? 'disabled' : ''}>${esc(raw ?? '')}</textarea>`);
-    case 'Numeric': case 'Int':
-      getters.push([c, () => { const v = $('#' + id).value; return v === '' ? null : Number(v); }]);
-      return wrap(`<input class="fr-input" id="${id}" type="number" step="${c.base === 'Int' ? 1 : 'any'}" value="${raw ?? ''}" ${ro ? 'disabled' : ''}>`);
-    case 'Bool':
+    case 'Numeric': case 'Int': {
+      /* affiché avec le format de la colonne (%, devise, décimales…) ; la valeur brute n'apparaît que pendant la saisie */
+      const ne = numEdit(c), shown = typeof raw === 'number' ? ne.fmt(raw) : (raw == null ? '' : String(raw));
+      const plain = typeof raw === 'number' ? ne.plain(raw) : shown;
+      getters.push([c, () => {
+        const el = $('#' + id);
+        if (el.dataset.dirty !== '1') return raw;                  // non modifié : valeur d'origine, sans perte de précision
+        const t = el.dataset.val !== undefined ? el.dataset.val : (el.value.trim() === '' ? '' : String(ne.parse(el.value)));
+        if (t === '') return null;
+        const n = +Number(t).toPrecision(12);
+        return isNaN(n) ? raw : (c.base === 'Int' ? Math.round(n) : n);
+      }]);
+      return wrap(`<input class="fr-input kb-num" id="${id}" type="text" inputmode="decimal" data-col="${esc(c.colId)}" data-shown="${esc(shown)}" data-plain="${esc(plain)}" value="${esc(shown)}" ${ro ? 'disabled' : ''}>`);
+    }
+    case 'Bool': {
+      const sw = boolWidget(c) === 'Switch';
       getters.push([c, () => $('#' + id).checked]);
-      return `<div class="fr-checkbox-group ${full ? 'kb-full' : ''}" style="margin-bottom:1rem"><input type="checkbox" id="${id}" ${raw ? 'checked' : ''} ${ro ? 'disabled' : ''}><label class="fr-label" for="${id}">${esc(c.label)}</label></div>`;
+      return sw
+        ? `<div class="fr-toggle ${full ? 'kb-full' : ''}" style="margin-bottom:1rem"><input type="checkbox" class="fr-toggle__input" id="${id}" ${raw ? 'checked' : ''} ${ro ? 'disabled' : ''}><label class="fr-toggle__label" for="${id}">${esc(c.label)}</label></div>`
+        : `<div class="fr-checkbox-group ${full ? 'kb-full' : ''}" style="margin-bottom:1rem"><input type="checkbox" id="${id}" ${raw ? 'checked' : ''} ${ro ? 'disabled' : ''}><label class="fr-label" for="${id}">${esc(c.label)}</label></div>`;
+    }
     case 'Date': {
       const s0 = toSec(raw);
       const v = s0 != null ? new Date(s0 * 1000).toISOString().slice(0, 10) : '';
@@ -510,9 +736,11 @@ function editorHtml(c, raw, i, full, lock) {
       return wrap(`<input class="fr-input" id="${id}" type="date" value="${v}" ${ro ? 'disabled' : ''}>`);
     }
     case 'DateTime': {
+      /* l'heure est exprimée dans le fuseau de la colonne (comme dans Grist), pas dans celui du navigateur */
+      const tz = c.tz || docSettings.timezone;
       let v = '';
-      if (toSec(raw) != null) { const d = new Date(toSec(raw) * 1000); v = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
-      getters.push([c, () => { const s = $('#' + id).value; return s ? Date.parse(s) / 1000 : null; }]);
+      if (toSec(raw) != null) v = formatMoment(toSec(raw), 'YYYY-MM-DDTHH:mm', tz);
+      getters.push([c, () => { const s = $('#' + id).value; return s === v ? (raw ?? null) : (s ? localToSec(s, tz) : null); }]);
       return wrap(`<input class="fr-input" id="${id}" type="datetime-local" value="${v}" ${ro ? 'disabled' : ''}>`);
     }
     case 'Choice': {
@@ -794,6 +1022,7 @@ function openSettings() { if (!isOwner) return; renderDrawer(); $('#kbDrawer').c
 document.addEventListener('click', async (e) => {
   const a = e.target.closest('[data-act]');
   if (!a) {
+    if (e.target.closest('a.kb-link')) return;                 // un lien s'ouvre sans ouvrir la carte
     const card = e.target.closest('.kb-card');
     if (card) openModal(Number(card.dataset.id));
     else if (e.target === $('#kbOverlay')) closeModal();
@@ -828,6 +1057,24 @@ document.addEventListener('change', (e) => {
   else if (k === 'titleCol') cfg.titleCol = t.value;
   else if (k === 'addCard') { if (t.value) cfg.cardFields.push({ col: t.value }); }
   persist();
+});
+/* champs numériques de la popup : valeur brute à l'édition, format de la colonne au repos */
+document.addEventListener('focusin', (e) => {
+  const t = e.target; if (!t.classList || !t.classList.contains('kb-num') || t.dataset.dirty === '1') return;
+  t.value = t.dataset.plain; t.select();
+});
+document.addEventListener('focusout', (e) => {
+  const t = e.target; if (!t.classList || !t.classList.contains('kb-num')) return;
+  if (t.dataset.dirty !== '1') { t.value = t.dataset.shown; return; }
+  const c = col(t.dataset.col); if (!c) return;
+  if (t.value.trim() === '') { t.dataset.val = ''; return; }
+  const n = numEdit(c).parse(t.value);
+  if (isNaN(n)) { delete t.dataset.val; t.classList.add('fr-input--error'); return; }
+  t.classList.remove('fr-input--error');
+  t.dataset.val = String(n); t.value = numEdit(c).fmt(c.base === 'Int' ? Math.round(n) : n);
+});
+document.addEventListener('input', (e) => {
+  const t = e.target; if (t.classList && t.classList.contains('kb-num')) { t.dataset.dirty = '1'; delete t.dataset.val; }
 });
 $('#kbSearch').addEventListener('input', (e) => { search = e.target.value.trim().toLowerCase(); renderBoard(); });
 document.addEventListener('input', (e) => {             // recherche d'un champ dans la barre d'éléments (pas de nouveau rendu : on garde le focus)

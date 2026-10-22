@@ -75,11 +75,24 @@ La configuration est enregistrée avec le widget dans le document Grist.
 
 Pendant la mise en page, les valeurs déjà saisies mais pas encore enregistrées sont conservées. Une **section** regroupe tous les blocs qui la suivent jusqu'à la section suivante : pour sortir un bloc d'une section, déplacez-le avant celle-ci ; déplacer une section déplace aussi ses blocs.
 
+## Formats respectés
+
+Les cartes et la fenêtre de détail reprennent le format réglé dans Grist pour chaque colonne, sans rien à configurer :
+
+- **Nombres** : mode décimal (séparateur de milliers), **pourcentage**, devise, scientifique ; nombre de décimales ; négatifs entre parenthèses. Dans la fenêtre, le champ s'affiche formaté (ex. `35 %`) et passe en valeur brute pendant la saisie. Une valeur non modifiée est enregistrée telle quelle, sans perte de précision.
+- **Dates et heures** : format de date et d'heure de la colonne ; les colonnes date-heure utilisent le fuseau de la colonne (ou du document). La langue, la devise et le fuseau par défaut sont ceux du document.
+- **Cases à cocher** : case, interrupteur ou texte selon le widget de la colonne.
+- **Liens** : colonnes texte au format « lien » cliquables (`https://…` ou `Libellé https://…`).
+- **Références** : le libellé reprend le format de la colonne affichée.
+
+Limite : les sélecteurs de date de la fenêtre sont ceux du navigateur, ils suivent donc la langue du navigateur et non le format de la colonne.
+
 ## Qui peut configurer ?
 
 Le bouton **Configurer**, le panneau de configuration et le mode **Mise en page** de la fenêtre de détail ne sont visibles que par les **propriétaires du document**. Les autres utilisateurs voient le kanban et la fenêtre de détail, sans ces réglages.
 
-- Le rôle est lu auprès de Grist au chargement du widget (réponse de l'API `GET /docs/{id}`, champ `access`). Tant qu'il n'est pas connu, ou si la détection échoue, les réglages restent **masqués**.
+- Le rôle est détecté au chargement, en essayant dans l'ordre : `grist.getUserSession()` (si disponible), l'API REST de Grist (`access`), un jeton d'accès Grist, puis une **sonde ACL** (lecture de la table `OwnerAccess`). Tant que le rôle n'est pas connu, ou si aucune méthode ne répond, les réglages restent **masqués**.
+- **Sonde ACL (recommandée, la plus fiable)** : créez dans le document une table `OwnerAccess` d'une ligne, puis ajoutez une règle d'accès sur cette table : condition `user.Access != OWNER` → **refuser la lecture**. Seuls les propriétaires peuvent alors la lire, et le widget en déduit leur rôle. Si votre document contient déjà cette table (par exemple pour le widget « Fiche Produit »), il n'y a rien à faire.
 - Ce masquage ne concerne que l'interface du widget : il ne remplace pas les droits définis dans Grist. La modification des données reste régie par les droits d'accès du document.
 - **Dépannage** : si vous êtes propriétaire mais que les boutons n'apparaissent pas, ajoutez `?forceOwner=1` à l'URL du widget (par exemple `https://<compte>.github.io/grist-kanban-dsfr/?forceOwner=1`). Cela désactive la détection : les réglages sont alors visibles pour tous ceux qui ouvrent le document, donc à réserver aux documents dont tous les utilisateurs sont de confiance. Merci de signaler le cas, la détection doit fonctionner sans cela.
 
