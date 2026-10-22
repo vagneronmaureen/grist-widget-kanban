@@ -138,6 +138,19 @@
   .kb-blk-bar { display: flex; align-items: center; gap: .5rem; font-size: .75rem; color: var(--text-mention-grey, #666); margin-bottom: .25rem; }
   .kb-blk-kind { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .kb-mini { background: #fff; border: 1px solid var(--border-default-grey, #ccc); border-radius: 3px; font-size: .75rem; padding: 0 .5rem; cursor: pointer; line-height: 1.375rem; }
+  .kb-mini[aria-pressed="true"], .kb-mini[aria-expanded="true"] { background: #e3e3fd; border-color: var(--text-action-high-blue-france, #000091); }
+  .kb-mini .kb-ic { display: none; }
+  .kb-blk { container-type: inline-size; container-name: blk; }
+  .kb-blk-bar { flex-wrap: wrap; row-gap: .25rem; }
+  /* bloc étroit : les boutons de mise en forme passent en icônes seules (le libellé reste en info-bulle) */
+  @container blk (max-width: 440px) {
+    .kb-blk-bar .kb-tx { display: none; }
+    .kb-blk-bar .kb-ic { display: inline; }
+    .kb-blk-bar .kb-mini { padding: 0 .4rem; }
+    .kb-blk-kind { display: none; }
+    .kb-blk-bar { gap: .25rem; }
+    .kb-blk-bar .kb-grip { margin-right: auto; }
+  }
   .kb-mini:hover { border-color: var(--text-action-high-blue-france, #000091); }
   .kb-dropzone { border: 1px dashed var(--border-default-grey, #bbb); border-radius: 4px; color: var(--text-mention-grey, #888);
                  font-size: .8125rem; text-align: center; padding: .375rem; margin: .25rem 0 .75rem; }
@@ -957,11 +970,11 @@ function optsHtml(b, i) {
   </div>`;
 }
 function barHtml(b, i, kind) {
-  const w = !b.type ? `<select class="kb-wsel" data-wsel="${i}" aria-label="Largeur du champ" title="Largeur du champ">${[['third', '⅓ de la largeur'], ['half', '½ largeur'], ['two', '⅔ de la largeur'], ['full', 'Pleine largeur']].map(([v, l]) => `<option value="${v}" ${(b.w || 'half') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
-    <button type="button" class="kb-mini" data-act="blkOpt" data-i="${i}" aria-expanded="${optIdx === i}" title="Nom, icône, texte si vide, lecture seule…">Options ${optIdx === i ? '▴' : '▾'}</button>` : '';
+  const w = !b.type ? `<select class="kb-wsel" data-wsel="${i}" aria-label="Largeur du champ" title="Largeur du champ : ⅓, ½, ⅔ ou pleine largeur">${[['third', '⅓'], ['half', '½'], ['two', '⅔'], ['full', 'Plein']].map(([v, l]) => `<option value="${v}" ${(b.w || 'half') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <button type="button" class="kb-mini" data-act="blkOpt" data-i="${i}" aria-expanded="${optIdx === i}" title="Options : nom, icône, texte si vide, lecture seule…" aria-label="Options du champ"><span class="kb-ic" aria-hidden="true">⚙</span><span class="kb-tx">Options ${optIdx === i ? '▴' : '▾'}</span></button>` : '';
   return `<div class="kb-blk-bar"><span class="kb-grip" title="Glisser pour déplacer" aria-label="Glisser pour déplacer">⠿</span>
     <span class="kb-blk-kind">${kind}</span>${w}
-    <button type="button" class="kb-mini" data-act="blkRm" data-i="${i}" title="Retirer ce bloc">Retirer</button></div>`;
+    <button type="button" class="kb-mini" data-act="blkRm" data-i="${i}" title="Retirer ce bloc" aria-label="Retirer ce bloc"><span class="kb-ic" aria-hidden="true">✕</span><span class="kb-tx">Retirer</span></button></div>`;
 }
 
 /* --- rendu des blocs --------------------------------------------------- */
@@ -994,9 +1007,9 @@ function sectionHtml(b, i, inner, endPos) {
   return `<section class="kb-section kb-blk kb-full" draggable="false" data-i="${i}" data-sec="${i}">
     <div class="kb-blk-bar"><span class="kb-grip" title="Glisser pour déplacer la section" aria-label="Glisser pour déplacer la section">⠿</span>
       <span class="kb-blk-kind">Section</span>
-      <button type="button" class="kb-mini" data-act="secFold" data-i="${i}" aria-pressed="${!!b.fold}" title="Permettre de plier et déplier la section">Pliable : ${b.fold ? 'oui' : 'non'}</button>
-      ${b.fold ? `<button type="button" class="kb-mini" data-act="secClosed" data-i="${i}" aria-pressed="${!!b.closed}" title="Section repliée à l’ouverture de la fenêtre">Repliée au départ : ${b.closed ? 'oui' : 'non'}</button>` : ''}
-      <button type="button" class="kb-mini" data-act="blkRm" data-i="${i}" title="Retirer la section (ses champs sont conservés)">Retirer la section</button></div>
+      <button type="button" class="kb-mini" data-act="secFold" data-i="${i}" aria-pressed="${!!b.fold}" title="Section pliable : ${b.fold ? 'oui' : 'non'} (permet de plier et déplier la section)" aria-label="Section pliable"><span class="kb-ic" aria-hidden="true">▾</span><span class="kb-tx">Pliable : ${b.fold ? 'oui' : 'non'}</span></button>
+      ${b.fold ? `<button type="button" class="kb-mini" data-act="secClosed" data-i="${i}" aria-pressed="${!!b.closed}" title="Repliée au départ : ${b.closed ? 'oui' : 'non'} (section repliée à l’ouverture de la fenêtre)" aria-label="Repliée au départ"><span class="kb-ic" aria-hidden="true">⊟</span><span class="kb-tx">Repliée au départ : ${b.closed ? 'oui' : 'non'}</span></button>` : ''}
+      <button type="button" class="kb-mini" data-act="blkRm" data-i="${i}" title="Retirer la section (ses champs sont conservés)" aria-label="Retirer la section"><span class="kb-ic" aria-hidden="true">✕</span><span class="kb-tx">Retirer la section</span></button></div>
     <input class="fr-input kb-sec-input" data-blk="text" data-i="${i}" value="${esc(b.text || '')}" placeholder="Titre de la section" aria-label="Titre de la section">
     <div class="kb-sec-body">${inner}<div class="kb-dropzone kb-full" data-pos="${endPos}">Déposez ici</div></div></section>`;
 }
