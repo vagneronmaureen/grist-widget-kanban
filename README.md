@@ -75,17 +75,25 @@ La configuration est enregistrée avec le widget dans le document Grist.
 
 Un bloc se saisit par sa poignée ⠿ ou le libellé de sa barre, et peut être lâché sur un bloc, entre deux blocs ou sur le corps d'une section (le bloc le plus proche est alors visé). Pendant la mise en page, les valeurs déjà saisies mais pas encore enregistrées sont conservées. Une **section** peut être rendue **pliable** (bouton « Pliable » dans sa barre), éventuellement **repliée au départ** ; ses champs sont affichés sur un léger fond bleuté. Une section regroupe tous les blocs qui la suivent jusqu'à la section suivante : pour sortir un bloc d'une section, déplacez-le avant celle-ci ; déplacer une section déplace aussi ses blocs.
 
-## Formats respectés
+## Fenêtre de détail : même fonctionnement que la fiche
 
-Les cartes et la fenêtre de détail reprennent le format réglé dans Grist pour chaque colonne, sans rien à configurer :
+Chaque champ s'affiche selon son type, comme dans le widget « Fiche Produit » :
 
-- **Nombres** : mode décimal (séparateur de milliers), **pourcentage**, devise, scientifique ; nombre de décimales ; négatifs entre parenthèses. Dans la fenêtre, le champ s'affiche formaté (ex. `35 %`) et passe en valeur brute pendant la saisie. Une valeur non modifiée est enregistrée telle quelle, sans perte de précision.
-- **Dates et heures** : format de date et d'heure de la colonne ; les colonnes date-heure utilisent le fuseau de la colonne (ou du document). La langue, la devise et le fuseau par défaut sont ceux du document.
-- **Cases à cocher** : case, interrupteur ou texte selon le widget de la colonne.
-- **Liens** : colonnes texte au format « lien » cliquables (`https://…` ou `Libellé https://…`).
-- **Références** : le libellé reprend le format de la colonne affichée.
+| Type | Lecture | Modification |
+|---|---|---|
+| Texte | texte (style de colonne Grist : couleur, gras…) ; lien cliquable si format « lien » | zone de texte qui s'agrandit |
+| Nombre | format de la colonne (%, devise, séparateurs, décimales, négatifs entre parenthèses) | champ numérique ; en pourcentage on saisit `35` pour 35 %, avec l'unité affichée |
+| Date / date-heure | format de la colonne (JJ/MM/AAAA, HH:mm par défaut), fuseau de la colonne | sélecteur de date / date-heure |
+| Case à cocher | case désactivée | case |
+| Choix | pastille aux couleurs de Grist | liste déroulante de pastilles colorées |
+| Liste de choix | pastilles | pastilles avec ×, bouton + |
+| Référence / liste | pastilles | pastilles avec ×, recherche dans la table liée |
+| Pièces jointes | noms de fichiers à télécharger | retrait (×) et ajout de fichiers |
 
-Limite : les sélecteurs de date de la fenêtre sont ceux du navigateur, ils suivent donc la langue du navigateur et non le format de la colonne.
+- **Modification** : bouton « Modifier » puis Enregistrer / Annuler (par défaut), ou directement dans les champs (Configurer → « Modification des données »). Un lecteur du document ne voit pas le bouton « Modifier ».
+- **Champs calculés** (formules) : jamais modifiables, badge « Formule ». Le ⓘ affiche la description de la colonne définie dans Grist.
+- **Options par champ** (Mise en page → bouton « Options » de chaque champ) : nom affiché, icône, texte si vide, lecture seule, et pour les références le champ affiché et la couleur des pastilles. Ces réglages restent dans le widget : ils ne modifient pas Grist.
+- **Langue** : affichage à la française (la langue « en-US », réglage par défaut de Grist, est remplacée par fr-FR ; euro par défaut). Un format de date ou d'heure choisi dans Grist est respecté.
 
 ## Qui peut configurer ?
 
