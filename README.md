@@ -73,7 +73,7 @@ La configuration est enregistrée avec le widget dans le document Grist.
 3. Chaque bloc a une poignée ⠿ pour le déplacer, un bouton pour sa largeur (champs) et un bouton **Retirer**. Le texte des titres et des sections se modifie directement.
 4. Cliquez sur **Terminer la mise en page**. En lecture, les sections se replient d'un clic.
 
-Pendant la mise en page, les valeurs déjà saisies mais pas encore enregistrées sont conservées. Une **section** regroupe tous les blocs qui la suivent jusqu'à la section suivante : pour sortir un bloc d'une section, déplacez-le avant celle-ci ; déplacer une section déplace aussi ses blocs.
+Un bloc se saisit par sa poignée ⠿ ou le libellé de sa barre, et peut être lâché sur un bloc, entre deux blocs ou sur le corps d'une section (le bloc le plus proche est alors visé). Pendant la mise en page, les valeurs déjà saisies mais pas encore enregistrées sont conservées. Une **section** peut être rendue **pliable** (bouton « Pliable » dans sa barre), éventuellement **repliée au départ** ; ses champs sont affichés sur un léger fond bleuté. Une section regroupe tous les blocs qui la suivent jusqu'à la section suivante : pour sortir un bloc d'une section, déplacez-le avant celle-ci ; déplacer une section déplace aussi ses blocs.
 
 ## Formats respectés
 

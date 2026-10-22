@@ -78,16 +78,19 @@
   /* popup : mise en page */
   .kb-heading { margin: .5rem 0 .75rem; font-size: 1.125rem; line-height: 1.5; color: var(--text-title-grey, #161616); }
   .kb-divider { border: 0; border-top: 1px solid var(--border-default-grey, #ddd); margin: .5rem 0 1rem; padding: 0; }
-  .kb-section { border: 1px solid var(--border-default-grey, #ddd); border-radius: 4px; margin-bottom: 1rem; padding: 0 1rem; }
-  .kb-sec-toggle { display: block; width: 100%; text-align: left; background: none; border: 0; cursor: pointer; padding: .75rem 0;
+  .kb-section { margin-bottom: 1rem; }
+  .kb-sec-title { margin: 0 0 .5rem; font-size: 1rem; line-height: 1.5rem; }
+  .kb-sec-toggle { display: block; width: 100%; text-align: left; background: none; border: 0; cursor: pointer; padding: 0 0 .5rem;
                    font: inherit; font-weight: 700; font-size: 1.0625rem; color: var(--text-title-grey, #161616); }
   .kb-chev { display: inline-block; width: 1.25rem; color: var(--text-action-high-blue-france, #000091); }
-  .kb-sec-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1.5rem; padding-top: .25rem; }
+  .kb-sec-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1.5rem; padding: 1rem 1rem 0; border-radius: 4px; background: rgba(0, 0, 145, .05); }
   .kb-section.kb-collapsed .kb-sec-body { display: none; }
   .kb-sec-body .kb-full { grid-column: 1 / -1; }
   .kb-sec-input, .kb-heading-input { font-weight: 700; margin-bottom: .5rem; }
   .kb-blk { border: 1px dashed transparent; border-radius: 4px; padding: .25rem .375rem 0; margin-bottom: .25rem; }
   .kb-blk:hover { border-color: var(--border-default-grey, #bbb); }
+  /* en mode mise en page, le contenu des champs ne capte pas la souris : le bloc entier reste une cible de dépôt (les champs désactivés n'émettent pas d'événements de glisser) */
+  .kb-blk:not(.kb-section) > :not(.kb-blk-bar):not(.kb-heading-input) { pointer-events: none; }
   .kb-blk-bar { display: flex; align-items: center; gap: .5rem; font-size: .75rem; color: var(--text-mention-grey, #666); margin-bottom: .25rem; }
   .kb-blk-kind { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .kb-mini { background: #fff; border: 1px solid var(--border-default-grey, #ccc); border-radius: 3px; font-size: .75rem; padding: 0 .5rem; cursor: pointer; line-height: 1.375rem; }
@@ -805,15 +808,18 @@ function blockHtml(b, i, r, sec) {
 }
 function sectionHtml(b, i, inner, endPos) {
   const key = b.id || ('s' + i);
-  const shut = !editLayout && collapsed.has(key);
+  const shut = !editLayout && !!b.fold && collapsed.has(key);
   if (!editLayout) {
-    return `<section class="kb-section kb-full ${shut ? 'kb-collapsed' : ''}">
-      <button type="button" class="kb-sec-toggle" data-act="toggleSec" data-key="${esc(key)}" aria-expanded="${!shut}"><span class="kb-chev">${shut ? '▸' : '▾'}</span> ${esc(b.text || 'Section')}</button>
-      <div class="kb-sec-body">${inner}</div></section>`;
+    const head = b.fold
+      ? `<button type="button" class="kb-sec-toggle" data-act="toggleSec" data-key="${esc(key)}" aria-expanded="${!shut}"><span class="kb-chev">${shut ? '▸' : '▾'}</span> ${esc(b.text || 'Section')}</button>`
+      : `<h3 class="kb-sec-title">${esc(b.text || 'Section')}</h3>`;
+    return `<section class="kb-section kb-full ${shut ? 'kb-collapsed' : ''}">${head}<div class="kb-sec-body">${inner}</div></section>`;
   }
   return `<section class="kb-section kb-blk kb-full" draggable="false" data-i="${i}" data-sec="${i}">
     <div class="kb-blk-bar"><span class="kb-grip" title="Glisser pour déplacer la section" aria-label="Glisser pour déplacer la section">⠿</span>
       <span class="kb-blk-kind">Section</span>
+      <button type="button" class="kb-mini" data-act="secFold" data-i="${i}" aria-pressed="${!!b.fold}" title="Permettre de plier et déplier la section">Pliable : ${b.fold ? 'oui' : 'non'}</button>
+      ${b.fold ? `<button type="button" class="kb-mini" data-act="secClosed" data-i="${i}" aria-pressed="${!!b.closed}" title="Section repliée à l’ouverture de la fenêtre">Repliée au départ : ${b.closed ? 'oui' : 'non'}</button>` : ''}
       <button type="button" class="kb-mini" data-act="blkRm" data-i="${i}" title="Retirer la section (ses champs sont conservés)">Retirer la section</button></div>
     <input class="fr-input kb-sec-input" data-blk="text" data-i="${i}" value="${esc(b.text || '')}" placeholder="Titre de la section" aria-label="Titre de la section">
     <div class="kb-sec-body">${inner}<div class="kb-dropzone kb-full" data-pos="${endPos}">Déposez ici</div></div></section>`;
@@ -903,6 +909,7 @@ function renderModal() {
 function openModal(id) {
   if (!records.some((x) => x.id === id)) return;
   modalId = id; editLayout = false; draft = null; palSearch = '';
+  collapsed.clear(); blocks().forEach((b, k) => { if (isSection(b) && b.fold && b.closed) collapsed.add(b.id || ('s' + k)); });   // sections repliées au départ
   renderModal();
 }
 function closeModal() { $('#kbOverlay').classList.remove('open'); modalId = null; getters = []; editLayout = false; draft = null; mdrag = null; }
@@ -934,12 +941,34 @@ function newBlock(spec) {
   if (spec.type === 'divider') return { type: 'divider' };
   return { col: spec.col, w: defaultWidth(col(spec.col)) };
 }
+/* bloc (ou zone de dépôt) le plus proche du pointeur dans un conteneur, hors élément en cours de déplacement */
+function nearestTarget(e, scope, sel) {
+  let best = null, bd = Infinity;
+  scope.querySelectorAll(sel || '.kb-blk:not(.kb-section), .kb-dropzone').forEach((n) => {
+    if (n.classList.contains('row-dragging') || n.closest('.row-dragging')) return;
+    const r = n.getBoundingClientRect();
+    const dx = Math.max(r.left - e.clientX, 0, e.clientX - r.right), dy = Math.max(r.top - e.clientY, 0, e.clientY - r.bottom);
+    const d = dy * 4 + dx;                               // on privilégie la proximité verticale
+    if (d < bd) { bd = d; best = n; }
+  });
+  return best;
+}
 /* Où tomberait l'élément glissé ? → { pos, el, side } ou null */
 function dropTarget(e) {
   const L = blocks();
   const z = e.target.closest && e.target.closest('.kb-dropzone');
   if (z) return { pos: Number(z.dataset.pos), el: z, side: 'over' };
-  const el = e.target.closest && e.target.closest('.kb-blk');
+  let el = e.target.closest && e.target.closest('.kb-blk');
+  /* lâcher dans un espace entre deux blocs, ou sur le corps d'une section : on vise le bloc le plus proche */
+  const onHead = el && isSection(L[Number(el.dataset.i)]) && e.target.closest('.kb-blk-bar, .kb-sec-input');
+  if (!onHead && mdrag.kind !== 'section' && (!el || isSection(L[Number(el.dataset.i)]))) {
+    const scope = el || e.target.closest('.kb-modal-body');
+    el = scope ? nearestTarget(e, scope) : null;
+    if (el && el.classList.contains('kb-dropzone')) return { pos: Number(el.dataset.pos), el, side: 'over' };
+  } else if (!el && mdrag.kind === 'section') {
+    const body = e.target.closest('.kb-modal-body');
+    el = body ? nearestTarget(e, body, '.kb-section.kb-blk') : null;
+  }
   if (!el) return null;
   const i = Number(el.dataset.i), b = L[i], r = el.getBoundingClientRect();
   if (mdrag.kind === 'section') {              // une section ne se pose qu'entre deux sections
@@ -1041,6 +1070,8 @@ document.addEventListener('click', async (e) => {
     case 'doneLayout': editLayout = false; renderModal(); break;
     case 'toggleSec': { const k = a.dataset.key; collapsed.has(k) ? collapsed.delete(k) : collapsed.add(k); renderModal(); break; }
     case 'blkW': { const b = blocks()[i]; if (b) { b.w = b.w === 'full' ? 'half' : 'full'; saveLayout(); } break; }
+    case 'secFold': { const b = blocks()[i]; if (b) { b.fold = !b.fold; if (!b.fold) delete b.closed; saveLayout(); } break; }
+    case 'secClosed': { const b = blocks()[i]; if (b) { b.closed = !b.closed; saveLayout(); } break; }
     case 'blkRm': blocks().splice(i, 1); saveLayout(); break;
     case 'addBlk': { let spec; try { spec = JSON.parse(a.dataset.spec); } catch (x) { break; } blocks().push(newBlock(spec)); saveLayout(); break; }
   }
@@ -1093,7 +1124,7 @@ const MARKS = ['row-dragging', 'drop-before', 'drop-after', 'drop-left', 'drop-r
 const clearRowMarks = () => document.querySelectorAll(MARKS.map((m) => '.' + m).join(',')).forEach((n) => n.classList.remove(...MARKS));
 const resetGrips = () => document.querySelectorAll('.kb-row[draggable=true],.kb-blk[draggable=true]').forEach((n) => (n.draggable = false));
 document.addEventListener('mousedown', (e) => {
-  const g = e.target.closest && e.target.closest('.kb-grip');
+  const g = e.target.closest && e.target.closest('.kb-grip, .kb-blk-kind');     // poignée ou libellé de la barre
   const host = g && g.closest('.kb-row, .kb-blk');
   if (host) host.draggable = true;
 });
