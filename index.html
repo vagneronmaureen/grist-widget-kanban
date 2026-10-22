@@ -92,9 +92,13 @@
   .kb-modal-head { display: flex; align-items: flex-start; gap: 1rem; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-default-grey, #ddd); }
   .kb-modal-head h2 { margin: 0; flex: 1; font-size: 1.25rem; }
   .kb-modal-head { align-items: center; }
-  .kb-modal-body { padding: 1rem 1.5rem; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 0 1.5rem; align-content: start; flex: 1; }
+  .kb-modal-body { padding: 1rem 1.5rem; overflow-y: auto; display: grid; grid-template-columns: repeat(6, 1fr); gap: 0 1.5rem; align-content: start; flex: 1; }
   .kb-modal-body .fr-input-group { margin-bottom: 1rem; }
-  .kb-modal-body .kb-full { grid-column: 1 / -1; }
+  .kb-modal-body > *, .kb-sec-body > * { grid-column: span 3; min-width: 0; }
+  .kb-modal-body .kb-full, .kb-sec-body .kb-full { grid-column: 1 / -1; }
+  .kb-modal-body .kb-w-third, .kb-sec-body .kb-w-third { grid-column: span 2; }
+  .kb-modal-body .kb-w-two, .kb-sec-body .kb-w-two { grid-column: span 4; }
+  .kb-wsel { font-size: .75rem; border: 1px solid #ddd; border-radius: 4px; background: #fff; padding: 1px 4px; }
   .kb-modal-foot { padding: 1rem 1.5rem; border-top: 1px solid var(--border-default-grey, #ddd); display: flex; justify-content: flex-end; gap: .75rem; }
   .kb-checks { display: flex; flex-wrap: wrap; gap: .25rem 1rem; max-height: 9rem; overflow-y: auto; }
   .kb-checks label { display: flex; gap: .375rem; align-items: center; font-size: .875rem; }
@@ -124,9 +128,8 @@
   .kb-sec-toggle { display: block; width: 100%; text-align: left; background: none; border: 0; cursor: pointer; padding: 0 0 .5rem;
                    font: inherit; font-weight: 700; font-size: 1.0625rem; color: var(--text-title-grey, #161616); }
   .kb-chev { display: inline-block; width: 1.25rem; color: var(--text-action-high-blue-france, #000091); }
-  .kb-sec-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1.5rem; padding: 1rem 1rem 0; border-radius: 4px; background: rgba(0, 0, 145, .05); }
+  .kb-sec-body { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0 1.5rem; padding: 1rem 1rem 0; border-radius: 4px; background: rgba(0, 0, 145, .05); }
   .kb-section.kb-collapsed .kb-sec-body { display: none; }
-  .kb-sec-body .kb-full { grid-column: 1 / -1; }
   .kb-sec-input, .kb-heading-input { font-weight: 700; margin-bottom: .5rem; }
   .kb-blk { border: 1px dashed transparent; border-radius: 4px; padding: .25rem .375rem 0; margin-bottom: .25rem; }
   .kb-blk:hover { border-color: var(--border-default-grey, #bbb); }
@@ -747,6 +750,7 @@ const uid = () => 's' + Math.random().toString(36).slice(2, 9);
 const blocks = () => (cfg.modalFields = cfg.modalFields || []);
 const isSection = (b) => !!b && b.type === 'section';
 const secEnd = (s) => { const L = blocks(); let k = s + 1; while (k < L.length && !isSection(L[k])) k++; return k; };
+const wCls = (w) => (w === 'full' ? 'kb-full' : w === 'third' ? 'kb-w-third' : w === 'two' ? 'kb-w-two' : '');   // demi-largeur par défaut
 const defaultWidth = (c) => (c && ['Text', 'ChoiceList', 'RefList'].includes(c.base) ? 'full' : 'half');
 
 /* --- champs : affichage (lecture) et saisie (modification), sur le modèle de la fiche -------------------
@@ -926,7 +930,7 @@ function cellHtml(b, c, raw, full) {
   const info = c.description ? `<span class="kb-info" tabindex="0" data-tip="${esc(c.description)}" aria-label="${esc(c.description)}">i</span>` : '';
   const badge = dataEditing() && locked ? `<span class="kb-ro" title="${c.readOnly ? 'Champ calculé : non modifiable' : 'Lecture seule dans ce widget'}">${c.readOnly ? 'Formule' : 'Lecture seule'}</span>`
     : (editLayout && b.ro ? '<span class="kb-ro">🔒</span>' : '');
-  return `<div class="kb-cell ${full ? 'kb-full' : ''}"><div class="kb-cell-label">${b.emoji ? `<span class="kb-emoji">${esc(b.emoji)}</span>` : ''}${esc(b.label || c.label)}${info}${badge}</div>${de ? editorBody(c, raw, b) : displayBody(c, raw, b)}</div>`;
+  return `<div class="kb-cell ${wCls(b.w)}"><div class="kb-cell-label">${b.emoji ? `<span class="kb-emoji">${esc(b.emoji)}</span>` : ''}${esc(b.label || c.label)}${info}${badge}</div>${de ? editorBody(c, raw, b) : displayBody(c, raw, b)}</div>`;
 }
 function fieldBlockHtml(b, i, r) {
   const c = col(b.col);
@@ -953,7 +957,7 @@ function optsHtml(b, i) {
   </div>`;
 }
 function barHtml(b, i, kind) {
-  const w = !b.type ? `<button type="button" class="kb-mini" data-act="blkW" data-i="${i}" title="Changer la largeur">${b.w === 'full' ? 'Pleine largeur' : 'Demi-largeur'}</button>
+  const w = !b.type ? `<select class="kb-wsel" data-wsel="${i}" aria-label="Largeur du champ" title="Largeur du champ">${[['third', '⅓ de la largeur'], ['half', '½ largeur'], ['two', '⅔ de la largeur'], ['full', 'Pleine largeur']].map(([v, l]) => `<option value="${v}" ${(b.w || 'half') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     <button type="button" class="kb-mini" data-act="blkOpt" data-i="${i}" aria-expanded="${optIdx === i}" title="Nom, icône, texte si vide, lecture seule…">Options ${optIdx === i ? '▴' : '▾'}</button>` : '';
   return `<div class="kb-blk-bar"><span class="kb-grip" title="Glisser pour déplacer" aria-label="Glisser pour déplacer">⠿</span>
     <span class="kb-blk-kind">${kind}</span>${w}
@@ -976,7 +980,7 @@ function blockHtml(b, i, r, sec) {
     if (!inner) return '';
   }
   if (!editLayout) return b.type ? `<div class="kb-full">${inner}</div>` : inner;
-  return `<div class="kb-blk ${full ? 'kb-full' : ''}" draggable="false" data-i="${i}" data-sec="${sec}">${barHtml(b, i, kind)}${!b.type && optIdx === i ? optsHtml(b, i) : ''}${inner}</div>`;
+  return `<div class="kb-blk ${b.type ? 'kb-full' : wCls(b.w)}" draggable="false" data-i="${i}" data-sec="${sec}">${barHtml(b, i, kind)}${!b.type && optIdx === i ? optsHtml(b, i) : ''}${inner}</div>`;
 }
 function sectionHtml(b, i, inner, endPos) {
   const key = b.id || ('s' + i);
@@ -1248,7 +1252,6 @@ document.addEventListener('click', async (e) => {
     case 'editLayout': enterLayout(); break;
     case 'doneLayout': editLayout = false; renderModal(); break;
     case 'toggleSec': { const k = a.dataset.key; collapsed.has(k) ? collapsed.delete(k) : collapsed.add(k); renderModal(); break; }
-    case 'blkW': { const b = blocks()[i]; if (b) { b.w = b.w === 'full' ? 'half' : 'full'; saveLayout(); } break; }
     case 'secFold': { const b = blocks()[i]; if (b) { b.fold = !b.fold; if (!b.fold) delete b.closed; saveLayout(); } break; }
     case 'secClosed': { const b = blocks()[i]; if (b) { b.closed = !b.closed; saveLayout(); } break; }
     case 'editData': editing = true; renderModal(); break;
@@ -1307,6 +1310,7 @@ document.addEventListener('change', (e) => {
     saveCfg(); if (t.type === 'checkbox' || t.tagName === 'SELECT') renderModal();     // les champs texte ne sont pas redessinés : on garde le focus
     return;
   }
+  if (d.wsel !== undefined) { const b = blocks()[Number(d.wsel)]; if (b) { b.w = t.value; saveLayout(); } return; }
   if (d.attfile !== undefined) { uploadFiles(d.attfile, t.files); return; }
   if (d.f === undefined) return;
   if (d.kind === 'date') setPending(d.f, t.value ? Date.parse(t.value + 'T00:00:00Z') / 1000 : null);
